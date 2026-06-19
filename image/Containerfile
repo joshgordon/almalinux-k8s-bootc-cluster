@@ -1,3 +1,23 @@
 FROM quay.io/almalinuxorg/almalinux-bootc:10
+ARG k8s_version=1.36
 
-RUN dnf install vim
+COPY modules-load-k8s.conf /etc/modules-load.d/k8s.conf
+COPY sysctl-k8s.conf /etc/sysctl.d/k8s.conf
+
+
+
+RUN dnf install -y python3-gobject epel-release vim && crb enable
+
+RUN dnf install -y containerd
+
+RUN mkdir -p /etc/containerd && \
+  containerd config default > /etc/containerd/config.toml && \
+  sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml && \
+  systemctl restart containerd && \
+  systemctl enable containerd
+
+COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
+
+RUN dnf install -y kubelet kubeadm kubectl
+
+RUN systemctl enable kubelet
