@@ -1,8 +1,8 @@
 FROM quay.io/almalinuxorg/almalinux-bootc:10
 ARG k8s_version=1.36
 
-COPY ./modules-load-k8s.conf /etc/modules-load.d/k8s.conf
-COPY ./sysctl-k8s.conf /etc/sysctl.d/k8s.conf
+COPY modules-load-k8s.conf /etc/modules-load.d/k8s.conf
+COPY sysctl-k8s.conf /etc/sysctl.d/k8s.conf
 
 
 
@@ -16,7 +16,7 @@ RUN mkdir -p /etc/containerd && \
   systemctl restart containerd && \
   systemctl enable containerd
 
-COPY ./kubernetes.repo /etc/yum.repos.d/kubernetes.repo
+COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
 
 RUN dnf install -y kubelet kubeadm kubectl
 
