@@ -1,0 +1,3 @@
+FROM almalinuxorg/almalinux-bootc:10
+
+RUN dnf install vim
