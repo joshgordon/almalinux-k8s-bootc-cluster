@@ -13,7 +13,6 @@ RUN dnf install -y containerd
 RUN mkdir -p /etc/containerd && \
   containerd config default > /etc/containerd/config.toml && \
   sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml && \
-  systemctl restart containerd && \
   systemctl enable containerd
 
 COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
