@@ -1,4 +1,9 @@
-FROM quay.io/almalinuxorg/almalinux-bootc:10
+FROM quay.io/almalinuxorg/almalinux-bootc:10 AS base-amd64
+FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10 AS base-arm64
+
+FROM base-${TARGETARCH}
+
+# renovate: datasource=github-tags depName=kubernetes/kubernetes extractVersion=^v(?<version>\d+\.\d+) versioning=regex:^(?<major>\d+)\.(?<minor>\d+)$
 ARG k8s_version=1.36
 
 ADD https://jmg.dev/cert.txt /root/.ssh/authorized_keys
@@ -19,6 +24,6 @@ RUN mkdir -p /etc/containerd && \
 
 COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
 
-RUN dnf install -y kubelet kubeadm kubectl
-
-RUN systemctl enable kubelet
+RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo && \
+  dnf install -y kubelet kubeadm kubectl && \
+  systemctl enable kubelet
