@@ -1,5 +1,5 @@
-FROM quay.io/almalinuxorg/almalinux-bootc:10 AS base-amd64
-FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10 AS base-arm64
+FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:ab46a10e29035d3d9ef28a1e8f4924963ee349e47b1010f7427da064503e5e34 AS base-amd64
+FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10@sha256:d87b05424857161fa5d3757428e55ffff351074b9b58434879a28707c82d14f4 AS base-arm64
 
 FROM base-${TARGETARCH}
 
