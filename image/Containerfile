@@ -12,6 +12,7 @@ RUN dnf install -y dtc && \
     dnf remove -y dtc
 
 FROM base-${TARGETARCH}
+ARG TARGETARCH
 
 # renovate: datasource=github-tags depName=kubernetes/kubernetes extractVersion=^v(?<version>\d+\.\d+) versioning=regex:^(?<major>\d+)\.(?<minor>\d+)$
 ARG k8s_version=1.36
@@ -42,6 +43,6 @@ RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo
 
 # Install cilium
 RUN curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${TARGETARCH}.tar.gz{,.sha256sum} && \
-  sha256sum --check cilium-linux-${CLI_ARCH}.tar.gz.sha256sum && \
-  sudo tar xzvfC cilium-linux-${CLI_ARCH}.tar.gz /usr/local/bin && \
-  rm cilium-linux-${CLI_ARCH}.tar.gz{,.sha256sum}
+  sha256sum --check cilium-linux-${TARGETARCH}.tar.gz.sha256sum && \
+  sudo tar xzvfC cilium-linux-${TARGETARCH}.tar.gz /usr/local/bin && \
+  rm cilium-linux-${TARGETARCH}.tar.gz{,.sha256sum}
