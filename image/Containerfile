@@ -17,7 +17,7 @@ FROM base-${TARGETARCH}
 ARG k8s_version=1.36
 
 # renovate: datasource=github-releases depName=cilium/cilium-cli
-ARG CILIUM_CLI_VERSION=v0.19.4
+ARG CILIUM_CLI_VERSION=v0.19.5
 
 ADD https://jmg.dev/cert.txt /root/.ssh/authorized_keys
 
