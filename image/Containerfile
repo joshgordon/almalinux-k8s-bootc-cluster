@@ -1,5 +1,15 @@
 FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:cd7584328b9e937a6ce5242bac41dab15f2aafa118b8073efc2c44a065f24bf3 AS base-amd64
 FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10@sha256:2fb56bdcc5e415295cd949b5888cff2ad4abfdb47266b8336d303ce68dd24882 AS base-arm64
+RUN dnf install -y dtc && \
+    for dtb in /usr/share/raspberrypi2-kernel4/*/boot/bcm27*.dtb; do \
+        [ -f "$dtb" ] || continue; \
+        args=$(fdtget "$dtb" /chosen bootargs 2>/dev/null) || continue; \
+        echo "Before ($dtb): $args"; \
+        newargs=$(echo "$args" | sed 's/cgroup_disable=memory //g;s/ cgroup_disable=memory//g;s/cgroup_disable=memory//g'); \
+        fdtput "$dtb" /chosen bootargs "$newargs" && \
+        echo "After: $newargs"; \
+    done && \
+    dnf remove -y dtc
 
 FROM base-${TARGETARCH}
 
