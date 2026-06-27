@@ -32,6 +32,12 @@ RUN mkdir -p /etc/containerd && \
   sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml && \
   systemctl enable containerd
 
+
+# deal with /opt/cni/bin/ being read-only:
+RUN mkdir -p /var/lib/cni/bin && \
+    mkdir -p /opt/cni && \
+    ln -s /var/lib/cni/bin /opt/cni/bin
+
 COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
 
 RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo && \
