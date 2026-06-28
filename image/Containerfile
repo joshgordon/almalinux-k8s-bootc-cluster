@@ -30,6 +30,7 @@ RUN dnf install -y containerd conntrack
 RUN mkdir -p /etc/containerd && \
   containerd config default > /etc/containerd/config.toml && \
   sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml && \
+  sed -i "s|bin_dirs = \['/opt/cni/bin'\]|bin_dirs = ['/var/lib/cni/bin', '/opt/cni/bin']|" /etc/containerd/config.toml && \
   systemctl enable containerd
 
 COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
