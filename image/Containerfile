@@ -3,7 +3,7 @@ FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10@sha256:2fb56bdcc5e415295cd949b5
 
 # build kernel RPMs in a throwaway stage (tooling never reaches the final image)
 FROM rpi-raw AS kbuild
-RUN dnf install -y rpm-build rpmdevtools dnf-plugins-core 'dnf-command(builddep)' && \
+RUN dnf install -y epel-release rpm-build rpmdevtools dnf-plugins-core 'dnf-command(builddep)' && \
     crb enable && rpmdev-setuptree && \
     dnf download --source raspberrypi2-kernel4 && \
     rpm -i raspberrypi2-*.src.rpm && \
