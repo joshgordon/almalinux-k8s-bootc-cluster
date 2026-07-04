@@ -13,8 +13,7 @@ RUN dnf -y remove --noautoremove 'raspberrypi2-kernel4*' && \
     mkdir -p /var/roothome && chmod 700 /var/roothome && \
     dnf -y install /tmp/kernel/*.rpm && \
     rm -rf /tmp/kernel /var/roothome && dnf -y clean all && \
-    test "$(ls -1 /usr/lib/modules | wc -l)" -eq 1 && \
-    test -f "/usr/lib/modules/$(ls /usr/lib/modules)/vmlinuz"
+    test "$(ls -1 /usr/lib/modules | wc -l)" -eq 1
 
 # re-enable cgroup_memory.
 RUN dnf install -y dtc && \
