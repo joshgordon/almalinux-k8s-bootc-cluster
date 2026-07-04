@@ -3,17 +3,17 @@ FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10@sha256:2fb56bdcc5e415295cd949b5
 
 # build kernel RPMs in a throwaway stage (tooling never reaches the final image)
 FROM rpi-raw AS kbuild
-# bootc images don't set root's home in /etc/passwd; rpmdev-setuptree needs it
-ENV HOME=/root
-RUN mkdir -p /root && \
+# bootc rpi image has /root as a file not a dir; use /build as HOME instead
+ENV HOME=/build
+RUN mkdir -p /build && \
     dnf install -y epel-release rpm-build rpmdevtools dnf-plugins-core 'dnf-command(builddep)' && \
     crb enable && rpmdev-setuptree && \
-    dnf download --source raspberrypi2-kernel4 && \
-    rpm -i raspberrypi2-*.src.rpm && \
-    dnf builddep -y /root/rpmbuild/SPECS/raspberrypi2.spec && \
-    rpmbuild -bb /root/rpmbuild/SPECS/raspberrypi2.spec \
+    dnf download --source --destdir /tmp raspberrypi2-kernel4 && \
+    rpm -i /tmp/raspberrypi2-*.src.rpm && \
+    dnf builddep -y /build/rpmbuild/SPECS/raspberrypi2.spec && \
+    rpmbuild -bb /build/rpmbuild/SPECS/raspberrypi2.spec \
       --define 'bcmmodel 2712' --define 'dist .el10.bcm2712' && \
-    mkdir -p /rpms && cp /root/rpmbuild/RPMS/aarch64/*.rpm /rpms/
+    mkdir -p /rpms && cp /build/rpmbuild/RPMS/aarch64/*.rpm /rpms/
 
 # base-arm64: rpi base + the rebuilt kernel swapped in, NO build tooling
 FROM rpi-raw AS base-arm64
