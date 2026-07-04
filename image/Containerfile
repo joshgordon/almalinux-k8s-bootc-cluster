@@ -12,8 +12,29 @@ RUN dnf -y remove --noautoremove 'raspberrypi2-kernel4*' && \
     # /root -> /var/roothome; target must exist for dracut to build the initramfs
     mkdir -p /var/roothome && chmod 700 /var/roothome && \
     dnf -y install /tmp/kernel/*.rpm && \
-    rm -rf /tmp/kernel /var/roothome && dnf -y clean all && \
-    test "$(ls -1 /usr/lib/modules | wc -l)" -eq 1
+    rm -rf /tmp/kernel && dnf -y clean all && \
+    test "$(ls -1 /usr/lib/modules | wc -l)" -eq 1 && \
+    KVER=$(ls /usr/lib/modules) && \
+    echo "=== kernel files after install ===" && \
+    find /usr/share/raspberrypi2-kernel4* /usr/lib/ostree-boot /boot /usr/lib/modules/"$KVER" \
+        \( -name 'vmlinuz*' -o -name 'kernel*.img' -o -name 'initramfs*' \) 2>/dev/null | sort && \
+    # Place vmlinuz where bootc expects it if %posttrans didn't
+    if ! test -e /usr/lib/modules/"$KVER"/vmlinuz; then \
+        KERNEL=$(find /usr/share/raspberrypi2-kernel4* -path '*/boot/*' \
+            \( -name 'kernel_2712.img' -o -name 'kernel8.img' -o -name 'kernel*.img' \) \
+            2>/dev/null | sort | tail -1) && \
+        test -n "$KERNEL" || { echo "ERROR: no kernel binary found"; exit 1; } && \
+        echo "Linking $KERNEL -> vmlinuz" && \
+        ln -sf "$KERNEL" /usr/lib/modules/"$KVER"/vmlinuz; \
+    fi && \
+    # Build initramfs if %posttrans didn't
+    if ! test -e /usr/lib/modules/"$KVER"/initramfs; then \
+        echo "Building initramfs for $KVER" && \
+        dracut --no-hostonly --force /usr/lib/modules/"$KVER"/initramfs "$KVER"; \
+    fi && \
+    rm -rf /var/roothome && \
+    test -e /usr/lib/modules/"$KVER"/vmlinuz && \
+    test -e /usr/lib/modules/"$KVER"/initramfs
 
 # re-enable cgroup_memory.
 RUN dnf install -y dtc && \
