@@ -1,26 +1,15 @@
 FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:cd7584328b9e937a6ce5242bac41dab15f2aafa118b8073efc2c44a065f24bf3 AS base-amd64
 FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10@sha256:2fb56bdcc5e415295cd949b5888cff2ad4abfdb47266b8336d303ce68dd24882 AS rpi-raw
 
-# build kernel RPMs in a throwaway stage (tooling never reaches the final image)
-FROM rpi-raw AS kbuild
-# bootc rpi image has /root as a file not a dir; use /build as HOME instead
-ENV HOME=/build
-RUN mkdir -p /build && \
-    dnf install -y epel-release rpm-build rpmdevtools dnf-plugins-core 'dnf-command(builddep)' && \
-    crb enable && rpmdev-setuptree && \
-    dnf download --source --destdir /tmp raspberrypi2-kernel4 && \
-    rpm -i /tmp/raspberrypi2-*.src.rpm && \
-    dnf builddep -y /build/rpmbuild/SPECS/raspberrypi2.spec && \
-    rpmbuild -bb /build/rpmbuild/SPECS/raspberrypi2.spec \
-      --define 'bcmmodel 2712' --define 'dist .el10.bcm2712' && \
-    mkdir -p /rpms && cp /build/rpmbuild/RPMS/aarch64/*.rpm /rpms/
+# pre-built BCM2712 kernel RPMs — see github.com/joshgordon/almalinux-rpi5-kernel
+FROM ghcr.io/joshgordon/almalinux-rpi5-kernel:latest AS kbuild
 
 # base-arm64: rpi base + the rebuilt kernel swapped in, NO build tooling
 FROM rpi-raw AS base-arm64
 COPY --from=kbuild /rpms/ /tmp/kernel/
-RUN dnf -y remove --noautoremove \
-      raspberrypi2-kernel4 raspberrypi2-kernel4-tools raspberrypi2-kernel4-tools-libs && \
-    dnf -y install --allowerasing /tmp/kernel/*.rpm && \
+RUN dnf -y remove --noautoremove 'raspberrypi2-kernel4*' && \
+    rm -rf /usr/lib/modules/* && \
+    dnf -y install /tmp/kernel/*.rpm && \
     rm -rf /tmp/kernel && dnf -y clean all && \
     test "$(ls -1 /usr/lib/modules | wc -l)" -eq 1
 
