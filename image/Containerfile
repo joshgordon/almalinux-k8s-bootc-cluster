@@ -13,6 +13,7 @@ RUN dnf -y remove --noautoremove 'raspberrypi2-kernel4*' && \
     mkdir -p /var/roothome && chmod 700 /var/roothome && \
     dnf -y install /tmp/kernel/*.rpm && \
     rm -rf /tmp/kernel /var/roothome && dnf -y clean all && \
+    rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf && \
     test "$(ls -1 /usr/lib/modules | wc -l)" -eq 1 && \
     KVER=$(ls /usr/lib/modules) && \
     # %posttrans writes kernel/initramfs to /boot/ (for real systems with a FAT32 /boot).
@@ -34,7 +35,8 @@ RUN dnf install -y dtc && \
         fdtput "$dtb" /chosen bootargs "$newargs" && \
         echo "After: $newargs"; \
     done && \
-    dnf remove -y dtc
+    dnf remove -y dtc && \
+    dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
 FROM base-${TARGETARCH}
 ARG TARGETARCH
@@ -48,9 +50,11 @@ ARG CILIUM_CLI_VERSION=v0.19.5
 COPY modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
 COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
 
-RUN dnf install -y python3-gobject epel-release vim && crb enable
+RUN dnf install -y python3-gobject epel-release vim && crb enable && \
+    dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
-RUN dnf install -y containerd conntrack
+RUN dnf install -y containerd conntrack && \
+    dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
 RUN mkdir -p /etc/containerd && \
   containerd config default > /etc/containerd/config.toml && \
@@ -62,7 +66,8 @@ COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
 
 RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo && \
   dnf install -y kubelet kubeadm kubectl && \
-  systemctl enable kubelet
+  systemctl enable kubelet && \
+  dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
 
 # Install cilium
