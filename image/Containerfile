@@ -9,10 +9,10 @@ FROM rpi-raw AS base-arm64
 COPY --from=kbuild /rpms/ /tmp/kernel/
 RUN dnf -y remove --noautoremove 'raspberrypi2-kernel4*' && \
     rm -rf /usr/lib/modules/* && \
-    # /root is a file in the rpi bootc image; dracut needs it as a dir to build the initramfs
-    { [ -f /root ] && rm /root; } || true && mkdir -p /root && chmod 700 /root && \
+    # /root -> /var/roothome; target must exist for dracut to build the initramfs
+    mkdir -p /var/roothome && chmod 700 /var/roothome && \
     dnf -y install /tmp/kernel/*.rpm && \
-    rm -rf /tmp/kernel && dnf -y clean all && \
+    rm -rf /tmp/kernel /var/roothome && dnf -y clean all && \
     test "$(ls -1 /usr/lib/modules | wc -l)" -eq 1 && \
     test -f "/usr/lib/modules/$(ls /usr/lib/modules)/vmlinuz"
 
