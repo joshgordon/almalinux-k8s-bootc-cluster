@@ -3,14 +3,17 @@ FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10@sha256:2fb56bdcc5e415295cd949b5
 
 # build kernel RPMs in a throwaway stage (tooling never reaches the final image)
 FROM rpi-raw AS kbuild
-RUN dnf install -y epel-release rpm-build rpmdevtools dnf-plugins-core 'dnf-command(builddep)' && \
+# bootc images don't set root's home in /etc/passwd; rpmdev-setuptree needs it
+ENV HOME=/root
+RUN mkdir -p /root && \
+    dnf install -y epel-release rpm-build rpmdevtools dnf-plugins-core 'dnf-command(builddep)' && \
     crb enable && rpmdev-setuptree && \
     dnf download --source raspberrypi2-kernel4 && \
     rpm -i raspberrypi2-*.src.rpm && \
-    dnf builddep -y ~/rpmbuild/SPECS/raspberrypi2.spec && \
-    rpmbuild -bb ~/rpmbuild/SPECS/raspberrypi2.spec \
+    dnf builddep -y /root/rpmbuild/SPECS/raspberrypi2.spec && \
+    rpmbuild -bb /root/rpmbuild/SPECS/raspberrypi2.spec \
       --define 'bcmmodel 2712' --define 'dist .el10.bcm2712' && \
-    mkdir -p /rpms && cp ~/rpmbuild/RPMS/aarch64/*.rpm /rpms/
+    mkdir -p /rpms && cp /root/rpmbuild/RPMS/aarch64/*.rpm /rpms/
 
 # base-arm64: rpi base + the rebuilt kernel swapped in, NO build tooling
 FROM rpi-raw AS base-arm64
@@ -23,7 +26,7 @@ RUN dnf -y remove --noautoremove \
 
 # re-enable cgroup_memory.
 RUN dnf install -y dtc && \
-    for dtb in /usr/share/raspberrypi2-kernel4/*/boot/bcm27*.dtb; do \
+    for dtb in /usr/share/raspberrypi2-kernel4*/*/boot/bcm27*.dtb; do \
         [ -f "$dtb" ] || continue; \
         args=$(fdtget "$dtb" /chosen bootargs 2>/dev/null) || continue; \
         echo "Before ($dtb): $args"; \
@@ -42,8 +45,8 @@ ARG k8s_version=1.36
 # renovate: datasource=github-releases depName=cilium/cilium-cli
 ARG CILIUM_CLI_VERSION=v0.19.5
 
-COPY modules-load-k8s.conf /etc/modules-load.d/k8s.conf
-COPY sysctl-k8s.conf /etc/sysctl.d/k8s.conf
+COPY modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
+COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
 
 RUN dnf install -y python3-gobject epel-release vim && crb enable
 
@@ -67,3 +70,5 @@ RUN curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releas
   sha256sum --check cilium-linux-${TARGETARCH}.tar.gz.sha256sum && \
   sudo tar xzvfC cilium-linux-${TARGETARCH}.tar.gz /usr/local/bin && \
   rm cilium-linux-${TARGETARCH}.tar.gz{,.sha256sum}
+
+RUN bootc container lint
