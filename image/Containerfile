@@ -50,25 +50,21 @@ ARG CILIUM_CLI_VERSION=v0.19.5
 COPY modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
 COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
 
-RUN dnf install -y python3-gobject epel-release vim && crb enable && \
+RUN dnf install -y epel-release && crb enable && \
     dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
-RUN dnf install -y --refresh containerd cri-tools runc conntrack && \
-    dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
+COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
+
+RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo && \
+  dnf install -y kubelet kubeadm kubectl containerd cri-tools runc conntrack vim && \
+  systemctl enable kubelet && \
+  dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
 RUN mkdir -p /etc/containerd && \
   containerd config default > /etc/containerd/config.toml && \
   sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml && \
   sed -i "s|bin_dirs = \['/opt/cni/bin'\]|bin_dirs = ['/var/lib/cni/bin', '/opt/cni/bin']|" /etc/containerd/config.toml && \
   systemctl enable containerd
-
-COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
-
-RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo && \
-  dnf install -y kubelet kubeadm kubectl && \
-  systemctl enable kubelet && \
-  dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
-
 
 # Install cilium
 RUN curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${TARGETARCH}.tar.gz{,.sha256sum} && \
