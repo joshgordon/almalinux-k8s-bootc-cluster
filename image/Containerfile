@@ -49,6 +49,8 @@ ARG CILIUM_CLI_VERSION=v0.19.5
 
 COPY modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
 COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
+RUN mkdir -p /etc/systemd/system/bootc-fetch-apply-updates.service.d
+COPY disable-bootc-reboot.service /etc/systemd/system/bootc-fetch-apply-updates.service.d/disable-bootc-reboot.service
 
 RUN dnf install -y epel-release && crb enable && \
     dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
