@@ -53,7 +53,7 @@ COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
 RUN dnf install -y python3-gobject epel-release vim && crb enable && \
     dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
-RUN dnf install -y containerd conntrack && \
+RUN dnf install -y containerd cri-tools runc conntrack && \
     dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
 RUN mkdir -p /etc/containerd && \
