@@ -45,7 +45,7 @@ ARG TARGETARCH
 ARG k8s_version=1.36
 
 # renovate: datasource=github-releases depName=cilium/cilium-cli
-ARG CILIUM_CLI_VERSION=v0.19.5
+ARG CILIUM_CLI_VERSION=v0.19.6
 
 COPY modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
 COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
