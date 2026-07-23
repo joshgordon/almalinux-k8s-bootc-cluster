@@ -51,6 +51,7 @@ COPY modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
 COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
 RUN mkdir -p /etc/systemd/system/bootc-fetch-apply-updates.service.d
 COPY disable-bootc-reboot.service /etc/systemd/system/bootc-fetch-apply-updates.service.d/disable-bootc-reboot.service
+COPY iscsi-initiatorname-regen.service /usr/lib/systemd/system/iscsi-initiatorname-regen.service
 
 RUN dnf install -y epel-release && crb enable && \
     dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
@@ -67,6 +68,16 @@ RUN mkdir -p /etc/containerd && \
   sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml && \
   sed -i "s|bin_dirs = \['/opt/cni/bin'\]|bin_dirs = ['/var/lib/cni/bin', '/opt/cni/bin']|" /etc/containerd/config.toml && \
   systemctl enable containerd
+
+# Longhorn host dependencies: iSCSI initiator (volume attach), NFS client
+# (RWX / backup target), cryptsetup (encrypted volumes).
+# iscsi-initiator-utils bakes a fixed InitiatorName into /etc at install
+# time; drop it so every host gets a unique one on first boot instead of
+# every clone of this image sharing the same iSCSI identity.
+RUN dnf install -y iscsi-initiator-utils nfs-utils cryptsetup && \
+  rm -f /etc/iscsi/initiatorname.iscsi && \
+  systemctl enable iscsid.service iscsi-initiatorname-regen.service && \
+  dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
 # Install cilium
 RUN curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${TARGETARCH}.tar.gz{,.sha256sum} && \

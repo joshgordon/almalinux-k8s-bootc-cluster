@@ -1,0 +1,13 @@
+[Unit]
+Description=Regenerate unique iSCSI InitiatorName on first boot
+DefaultDependencies=no
+Before=iscsid.service iscsid.socket
+ConditionPathExists=!/etc/iscsi/initiatorname.iscsi
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'echo "InitiatorName=$(/sbin/iscsi-iname)" > /etc/iscsi/initiatorname.iscsi'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
