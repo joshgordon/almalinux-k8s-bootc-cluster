@@ -1,4 +1,4 @@
-FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:5a1c306cd49c33294a70ef542538fa2bca7b2a905471b89b1f40e123e9370ac5 AS base-amd64
+FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:afd5a14361c46b892358f3b12d54d501cd68011b30c4db9f8362cf5e938d1371 AS base-amd64
 FROM quay.io/almalinuxorg/almalinux-bootc-rpi:10@sha256:35f00e116ff83c5b6507a8045279ba48745b8f9dec1aadc60ce08382584773e2 AS rpi-raw
 
 # pre-built BCM2712 kernel RPMs — see github.com/joshgordon/almalinux-rpi5-kernel
