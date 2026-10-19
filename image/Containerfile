@@ -56,6 +56,13 @@ COPY iscsi-initiatorname-regen.service /usr/lib/systemd/system/iscsi-initiatorna
 RUN dnf install -y epel-release && crb enable && \
     dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
+# The AlmaLinux mirrorlist hands back URLs with a literal $basearch unless
+# asked for an arch. dnf expands it, but bootc-image-builder's downloader
+# doesn't, so every AlmaLinux package 404s when building the installer ISO.
+RUN sed -i -E 's|^(mirrorlist=https://mirrors\.almalinux\.org/mirrorlist/[^?]+)$|\1?arch=$basearch|' \
+      /etc/yum.repos.d/almalinux*.repo && \
+    grep -h '^mirrorlist=https://mirrors.almalinux.org' /etc/yum.repos.d/almalinux*.repo
+
 COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
 
 RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo && \
