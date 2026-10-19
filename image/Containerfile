@@ -42,7 +42,7 @@ FROM base-${TARGETARCH}
 ARG TARGETARCH
 
 # renovate: datasource=github-tags depName=kubernetes/kubernetes extractVersion=^v(?<version>\d+\.\d+)(\.\d+)?$ versioning=regex:^(?<major>\d+)\.(?<minor>\d+)$
-ARG k8s_version=1.36
+ARG k8s_version=1.37
 
 # renovate: datasource=github-releases depName=cilium/cilium-cli
 ARG CILIUM_CLI_VERSION=v0.19.7
