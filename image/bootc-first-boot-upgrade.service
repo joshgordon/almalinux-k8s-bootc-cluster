@@ -1,0 +1,12 @@
+[Unit]
+Description=Upgrade a fresh install to the latest image
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=!/var/lib/bootc-first-boot-upgrade.done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/bootc-first-boot-upgrade
+
+[Install]
+WantedBy=multi-user.target

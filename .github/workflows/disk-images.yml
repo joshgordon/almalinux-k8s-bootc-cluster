@@ -1,34 +1,35 @@
 name: Build disk images
 
-# Turns the published amd64 image into a qcow2 VM disk and an Anaconda
-# installer ISO with bootc-image-builder, and uploads both as workflow
-# artifacts. arm64 is skipped: that image only carries the Raspberry Pi 5
-# kernel, so it isn't useful as a generic VM or installer. Nodes update
-# themselves from the registry, so the disks only need refreshing now and then.
+# Builds an amd64 qcow2 VM disk from the published image with
+# bootc-image-builder, and an installer ISO by adding disk/install.ks to
+# AlmaLinux's boot.iso. The ISO pulls the image from the registry at install
+# time, and both kinds of install upgrade to the latest image on first boot, so
+# these only need refreshing occasionally. arm64 is skipped: that image only
+# carries the Raspberry Pi 5 kernel, so it isn't useful as a generic VM or
+# installer.
 
 on:
   schedule:
     - cron: "0 8 1 * *" # monthly, after that day's 06:00 image build
+  push:
+    branches: [main]
+    paths:
+      - "disk/**"
+      - ".github/workflows/disk-images.yml"
   workflow_dispatch:
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}:latest
   BUILDER: quay.io/centos-bootc/bootc-image-builder:latest
+  BOOT_ISO_URL: https://repo.almalinux.org/almalinux/10/isos/x86_64
+  BOOT_ISO: AlmaLinux-10-latest-x86_64-boot.iso
 
 jobs:
-  disk:
+  qcow2:
     runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: read
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - type: qcow2
-            output: qcow2/disk.qcow2
-          - type: anaconda-iso
-            output: bootiso/install.iso
     steps:
       - uses: actions/checkout@v7
 
@@ -42,24 +43,58 @@ jobs:
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           sudo podman pull "$IMAGE"
 
-      - name: Build ${{ matrix.type }}
+      - name: Build qcow2
         run: |
           mkdir -p output
           sudo podman run --rm --privileged --pull=newer \
             --security-opt label=type:unconfined_t \
-            -v ./disk/${{ matrix.type }}.toml:/config.toml:ro \
+            -v ./disk/qcow2.toml:/config.toml:ro \
             -v ./output:/output \
             -v /var/lib/containers/storage:/var/lib/containers/storage \
             "$BUILDER" \
-            --type ${{ matrix.type }} \
+            --type qcow2 \
             --rootfs xfs \
             "$IMAGE"
           sudo chown -R "$(id -u):$(id -g)" output
-          ls -lh output/${{ matrix.output }}
+          ls -lh output/qcow2/disk.qcow2
 
-      - name: Upload ${{ matrix.type }}
+      - name: Upload qcow2
         uses: actions/upload-artifact@v7
         with:
-          name: almalinux-k8s-${{ matrix.type }}
-          path: output/${{ matrix.output }}
+          name: almalinux-k8s-qcow2
+          path: output/qcow2/disk.qcow2
+          compression-level: 1
+
+  iso:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download and verify boot.iso
+        run: |
+          curl -fsSLO "$BOOT_ISO_URL/$BOOT_ISO"
+          curl -fsSL "$BOOT_ISO_URL/CHECKSUM" | grep "($BOOT_ISO)" | sed 's/^SHA256 (\(.*\)) = \(.*\)$/\2  \1/' > boot.sha256
+          sha256sum -c boot.sha256
+
+      - name: Validate kickstart and build ISO
+        run: |
+          mkdir -p output
+          sudo podman run --rm --privileged -v "$PWD:/work" -w /work \
+            quay.io/almalinuxorg/almalinux:10 bash -euo pipefail -c '
+              dnf -y -q install lorax pykickstart
+              # The %include target only exists at install time; stub it to validate
+              touch /tmp/ks-user.ks
+              ksvalidator disk/install.ks
+              mkksiso --ks disk/install.ks "$0" output/install.iso
+            ' "$BOOT_ISO"
+          sudo chown -R "$(id -u):$(id -g)" output
+          ls -lh output/install.iso
+
+      - name: Upload ISO
+        uses: actions/upload-artifact@v7
+        with:
+          name: almalinux-k8s-iso
+          path: output/install.iso
           compression-level: 1

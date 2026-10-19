@@ -104,31 +104,35 @@ the PR number.
 
 ### Disk images
 
-On the 1st of each month (08:00 UTC, after that day's image build),
-`disk-images.yml` uses
-[bootc-image-builder](https://github.com/osbuild/bootc-image-builder) to turn
-the amd64 image into two files, attached to the workflow run as artifacts
-(kept for 90 days):
+`disk-images.yml` builds two amd64 files, attached to the workflow run as
+artifacts (kept for 90 days). It runs on the 1st of each month (08:00 UTC,
+after that day's image build) and whenever `disk/` changes:
 
 - **`almalinux-k8s-qcow2`:** a VM disk (`disk.qcow2`, 40 GiB virtual,
-  sparse). It has no users baked in; give the VM cloud-init user-data with
-  your user, SSH key and passwordless sudo, as with the
+  sparse), made from the image with
+  [bootc-image-builder](https://github.com/osbuild/bootc-image-builder). It
+  has no users baked in; give the VM cloud-init user-data with your user, SSH
+  key and passwordless sudo, as with the
   [old cloud-init bootstrap](#provisioning-hosts).
-- **`almalinux-k8s-anaconda-iso`:** an installer (`install.iso`) for bare
-  metal or VMs without cloud-init. Before the installer starts, it asks on
-  the console for the hostname, the network interface, DHCP or a static
-  address (IP, prefix length, gateway, DNS), a username, and SSH keys. For
-  the keys, you can give a GitHub username to import that account's public
-  keys, or paste a key. A static address is brought up right away, so the
-  GitHub lookup works without DHCP. The user gets
+- **`almalinux-k8s-iso`:** a network installer (`install.iso`, about 1 GiB)
+  for bare metal or VMs without cloud-init. It's AlmaLinux's own `boot.iso`
+  with the kickstart in `disk/install.ks` added, and it pulls the node image
+  from the registry during the install, so it always installs the current
+  image. Before the installer starts, it asks on the console for the
+  hostname, the network interface, a static address (IP, prefix length,
+  gateway, DNS), a username, and SSH keys. For the keys, you can give a
+  GitHub username to import that account's public keys, or paste a key.
+  There's no DHCP: the address is brought up right away for the install,
+  and the installed system gets only that static address. The user gets
   passwordless sudo and no password, so it can only log in with those keys.
-  The installer then asks which disk to install to. The kickstart is in
-  `disk/anaconda-iso.toml`.
+  The installer then asks which disk to install to.
 
-Both boot straight into a node that's ready for the bootstrap playbook. No
-`bootc switch` is needed, and updates come from
-`ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest`. Check this with
-`bootc status` after installing.
+Both boot straight into a node that's ready for the bootstrap playbook, with
+updates coming from `ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest`.
+On their first boot, `bootc-first-boot-upgrade.service` upgrades to the
+latest image and reboots if a newer one exists, so an older qcow2 or ISO
+still ends up current. It only does this on a fresh install (no rollback
+deployment yet), so existing nodes never reboot from it.
 
 arm64 disk images aren't built, because the arm64 image only carries the
 Raspberry Pi 5 kernel.

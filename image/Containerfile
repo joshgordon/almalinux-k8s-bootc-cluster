@@ -56,13 +56,6 @@ COPY iscsi-initiatorname-regen.service /usr/lib/systemd/system/iscsi-initiatorna
 RUN dnf install -y epel-release && crb enable && \
     dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
-# The AlmaLinux mirrorlist hands back URLs with a literal $basearch unless
-# asked for an arch. dnf expands it, but bootc-image-builder's downloader
-# doesn't, so every AlmaLinux package 404s when building the installer ISO.
-RUN sed -i -E 's|^(mirrorlist=https://mirrors\.almalinux\.org/mirrorlist/[^?]+)$|\1?arch=$basearch|' \
-      /etc/yum.repos.d/almalinux*.repo && \
-    grep -h '^mirrorlist=https://mirrors.almalinux.org' /etc/yum.repos.d/almalinux*.repo
-
 COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
 
 RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo && \
@@ -91,6 +84,12 @@ RUN dnf install -y iscsi-initiator-utils nfs-utils cryptsetup && \
 RUN dnf install -y cloud-init cloud-utils-growpart && \
   systemctl enable cloud-init.service && \
   dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
+
+# Fresh installs from an older qcow2 or ISO jump straight to the latest image.
+COPY bootc-first-boot-upgrade /usr/libexec/bootc-first-boot-upgrade
+COPY bootc-first-boot-upgrade.service /usr/lib/systemd/system/bootc-first-boot-upgrade.service
+RUN chmod 0755 /usr/libexec/bootc-first-boot-upgrade && \
+  systemctl enable bootc-first-boot-upgrade.service
 
 # Install cilium
 RUN curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${TARGETARCH}.tar.gz{,.sha256sum} && \

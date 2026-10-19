@@ -1,0 +1,15 @@
+#!/bin/bash
+# Upgrades a fresh install (from the qcow2 or the ISO) to the latest image and
+# reboots into it if there's a newer one. A fresh install has no rollback
+# deployment yet; nodes that have been upgraded or switched always do, so they
+# skip this and keep waiting for a reboot you schedule.
+set -euo pipefail
+
+touch /var/lib/bootc-first-boot-upgrade.done
+
+if bootc status --format=json \
+    | python3 -c 'import json, sys; sys.exit(json.load(sys.stdin)["status"]["rollback"] is not None)'; then
+  exec bootc upgrade --apply --quiet
+fi
+
+echo "Not a fresh install; leaving updates to bootc-fetch-apply-updates."
