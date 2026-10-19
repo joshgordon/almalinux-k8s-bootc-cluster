@@ -50,7 +50,7 @@ ARG CILIUM_CLI_VERSION=v0.20.1
 COPY modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
 COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
 RUN mkdir -p /etc/systemd/system/bootc-fetch-apply-updates.service.d
-COPY disable-bootc-reboot.service /etc/systemd/system/bootc-fetch-apply-updates.service.d/disable-bootc-reboot.service
+COPY disable-bootc-reboot.conf /etc/systemd/system/bootc-fetch-apply-updates.service.d/disable-bootc-reboot.conf
 COPY iscsi-initiatorname-regen.service /usr/lib/systemd/system/iscsi-initiatorname-regen.service
 
 RUN dnf install -y epel-release && crb enable && \
