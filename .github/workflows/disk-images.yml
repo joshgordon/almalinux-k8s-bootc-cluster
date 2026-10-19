@@ -3,13 +3,12 @@ name: Build disk images
 # Turns the published amd64 image into a qcow2 VM disk and an Anaconda
 # installer ISO with bootc-image-builder, and uploads both as workflow
 # artifacts. arm64 is skipped: that image only carries the Raspberry Pi 5
-# kernel, so it isn't useful as a generic VM or installer.
+# kernel, so it isn't useful as a generic VM or installer. Nodes update
+# themselves from the registry, so the disks only need refreshing now and then.
 
 on:
-  workflow_run:
-    workflows: ["Build image"]
-    types: [completed]
-    branches: [main]
+  schedule:
+    - cron: "0 8 1 * *" # monthly, after that day's 06:00 image build
   workflow_dispatch:
 
 env:
@@ -18,7 +17,6 @@ env:
 
 jobs:
   disk:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read

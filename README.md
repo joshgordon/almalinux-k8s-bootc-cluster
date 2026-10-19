@@ -104,7 +104,8 @@ the PR number.
 
 ### Disk images
 
-After each successful image build on `main`, `disk-images.yml` uses
+On the 1st of each month (08:00 UTC, after that day's image build),
+`disk-images.yml` uses
 [bootc-image-builder](https://github.com/osbuild/bootc-image-builder) to turn
 the amd64 image into two files, attached to the workflow run as artifacts
 (kept for 90 days):
