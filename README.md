@@ -120,10 +120,10 @@ after that day's image build) and whenever `disk/` changes:
   from the registry during the install, so it always installs the current
   image. Before the installer starts, it asks on the console for the
   hostname, the network interface, a static address (IP, prefix length,
-  gateway, DNS), a username, and SSH keys. For the keys, you can give a
-  GitHub username to import that account's public keys, or paste a key.
-  There's no DHCP: the address is brought up right away for the install,
-  and the installed system gets only that static address. The user gets
+  gateway, DNS) or DHCP, a username, and SSH keys. For the keys, you can
+  give a GitHub username to import that account's public keys, or paste a
+  key. The network is brought up right away for the install, so a static
+  address works without any DHCP server. The user gets
   passwordless sudo and no password, so it can only log in with those keys.
   The installer then asks which disk to install to.
 
