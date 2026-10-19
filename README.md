@@ -69,7 +69,7 @@ The build finishes with `bootc container lint`.
 ### Building locally
 
 ```bash
-podman build --platform linux/amd64 -t almalinux-k8s:dev image/
+podman build --platform linux/amd64 -f image/Containerfile -t almalinux-k8s:dev .
 ```
 
 ## CI

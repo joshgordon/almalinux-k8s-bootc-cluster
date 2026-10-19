@@ -47,16 +47,16 @@ ARG k8s_version=1.36
 # renovate: datasource=github-releases depName=cilium/cilium-cli
 ARG CILIUM_CLI_VERSION=v0.20.1
 
-COPY modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
-COPY sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
+COPY image/modules-load-k8s.conf /usr/lib/modules-load.d/k8s.conf
+COPY image/sysctl-k8s.conf /usr/lib/sysctl.d/k8s.conf
 RUN mkdir -p /etc/systemd/system/bootc-fetch-apply-updates.service.d
-COPY disable-bootc-reboot.conf /etc/systemd/system/bootc-fetch-apply-updates.service.d/disable-bootc-reboot.conf
-COPY iscsi-initiatorname-regen.service /usr/lib/systemd/system/iscsi-initiatorname-regen.service
+COPY image/disable-bootc-reboot.conf /etc/systemd/system/bootc-fetch-apply-updates.service.d/disable-bootc-reboot.conf
+COPY image/iscsi-initiatorname-regen.service /usr/lib/systemd/system/iscsi-initiatorname-regen.service
 
 RUN dnf install -y epel-release && crb enable && \
     dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
-COPY kubernetes.repo /etc/yum.repos.d/kubernetes.repo
+COPY image/kubernetes.repo /etc/yum.repos.d/kubernetes.repo
 
 RUN sed -i "s|__K8S_VERSION__|${k8s_version}|g" /etc/yum.repos.d/kubernetes.repo && \
   dnf install -y kubelet kubeadm kubectl containerd cri-tools runc conntrack vim && \
@@ -86,8 +86,8 @@ RUN dnf install -y cloud-init cloud-utils-growpart && \
   dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
 # Fresh installs from an older qcow2 or ISO jump straight to the latest image.
-COPY bootc-first-boot-upgrade /usr/libexec/bootc-first-boot-upgrade
-COPY bootc-first-boot-upgrade.service /usr/lib/systemd/system/bootc-first-boot-upgrade.service
+COPY image/bootc-first-boot-upgrade /usr/libexec/bootc-first-boot-upgrade
+COPY image/bootc-first-boot-upgrade.service /usr/lib/systemd/system/bootc-first-boot-upgrade.service
 RUN chmod 0755 /usr/libexec/bootc-first-boot-upgrade && \
   systemctl enable bootc-first-boot-upgrade.service
 

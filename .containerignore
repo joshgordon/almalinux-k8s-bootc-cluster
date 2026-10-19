@@ -1,0 +1,4 @@
+# Builds run from the repo root (atomic-ci always uses it as the context);
+# only image/ is needed.
+*
+!image/
