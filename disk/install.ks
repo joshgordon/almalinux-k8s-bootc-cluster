@@ -1,6 +1,6 @@
 # Kickstart for the installer ISO (AlmaLinux boot.iso + this file, via mkksiso).
 #
-# %pre asks on the console (tty5) for the hostname, network (static or DHCP),
+# %pre asks on the console (tty5) for the hostname, timezone, network (static or DHCP),
 # a username and SSH keys. It brings the interface up straight away for the
 # GitHub key lookup and the image pull, then writes the matching kickstart
 # commands to /tmp/ks-user.ks for the %include below. There are no
@@ -8,6 +8,15 @@
 # wiping one on its own.
 
 ostreecontainer --url=ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest --transport=registry --no-signature-verification
+
+# Everything but the disk is answered here or in %pre, so Installation
+# Destination is the only screen left to fill in.
+lang en_US.UTF-8
+keyboard --vckeymap=us --xlayouts=us
+rootpw --lock
+
+%addon com_redhat_kdump --disable
+%end
 
 %pre --interpreter=/bin/bash --erroronfail
 exec < /dev/tty5 > /dev/tty5 2>&1
@@ -38,6 +47,11 @@ echo "=== almalinux-k8s node setup ==="
 echo
 
 ask hostname "Hostname (FQDN)" '^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,252}[a-zA-Z0-9])?$'
+ask timezone "Timezone (e.g. America/Chicago)" '^[A-Za-z0-9_+/-]+$' UTC
+while [[ ! -f "/usr/share/zoneinfo/${timezone}" ]]; do
+  echo "  Unknown timezone."
+  ask timezone "Timezone (e.g. America/Chicago)" '^[A-Za-z0-9_+/-]+$' UTC
+done
 
 echo
 echo "Network interfaces:"
@@ -90,6 +104,7 @@ done
 
 {
   echo "$netline"
+  echo "timezone ${timezone} --utc"
   echo "user --name=${user} --groups=wheel --lock"
   while read -r key; do
     [[ -n "$key" ]] && echo "sshkey --username=${user} \"${key}\""
@@ -101,7 +116,7 @@ done
 } > /tmp/ks-user.ks
 
 echo
-echo "  Host:    ${hostname}"
+echo "  Host:    ${hostname} (${timezone})"
 echo "  Network: ${iface} ${mode}${ip:+ ${ip}/${prefix} via ${gateway}, DNS ${dns}}"
 echo "  User:    ${user} with $(grep -c ^sshkey /tmp/ks-user.ks) SSH key(s)"
 echo
