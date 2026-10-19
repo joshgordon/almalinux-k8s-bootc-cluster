@@ -74,16 +74,39 @@ podman build --platform linux/amd64 -t almalinux-k8s:dev image/
 
 ## CI
 
-`build.yml` runs on pushes to `main` that touch `image/` or the workflow, on
-pull requests (build only, no push), every day at 06:00 UTC, and on demand.
+`build.yml` uses AlmaLinux's
+[atomic-ci](https://github.com/AlmaLinux/atomic-ci) workflows. It runs on
+pushes to `main` that touch `image/` or the workflow, on pull requests, every
+day at 06:00 UTC, and on demand.
 
 1. Builds the image natively on an amd64 runner and on an arm64 runner.
-2. Pushes `:latest-<arch>` and `:<YYYYMMDD>-<arch>` tags.
-3. Combines them into multi-arch `:latest` and `:<YYYYMMDD>` tags.
-4. Signs `:latest` with cosign (keyless, using GitHub's OIDC identity).
+2. Rechunks it, so nodes only download the layers that changed in an update.
+3. Generates a changelog of package changes since the previous `:latest`
+   (in the run's logs).
+4. Pushes a multi-arch image tagged with the branch name (`:main`, or the
+   pull request's ref for PRs), and signs it with cosign if the
+   `SIGNING_SECRET` repository secret is set. See [Signing](#signing).
+5. On `main` only, tags it `:latest`, `:10`, the AlmaLinux minor version
+   (e.g. `:10.2`), and the image version.
 
 The daily run picks up package updates in the base images even when nothing in
 this repo has changed.
+
+### Signing
+
+Images are signed with a cosign key once the `SIGNING_SECRET` repository
+secret exists; until then they're pushed unsigned. To set it up, create a key
+pair with an empty password, store the private key as the secret, and commit
+the public key:
+
+```bash
+COSIGN_PASSWORD= cosign generate-key-pair
+gh secret set SIGNING_SECRET < cosign.key
+rm cosign.key
+git add cosign.pub
+```
+
+Verify an image with `cosign verify --key cosign.pub ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest`.
 
 ### Dependency updates
 
