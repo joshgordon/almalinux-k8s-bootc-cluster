@@ -115,8 +115,11 @@ the amd64 image into two files, attached to the workflow run as artifacts
   [old cloud-init bootstrap](#provisioning-hosts).
 - **`almalinux-k8s-anaconda-iso`:** an installer (`install.iso`) for bare
   metal or VMs without cloud-init. Before the installer starts, it asks on
-  the console for a username and SSH keys. You can give a GitHub username
-  to import that account's public keys, or paste a key. The user gets
+  the console for the hostname, the network interface, DHCP or a static
+  address (IP, prefix length, gateway, DNS), a username, and SSH keys. For
+  the keys, you can give a GitHub username to import that account's public
+  keys, or paste a key. A static address is brought up right away, so the
+  GitHub lookup works without DHCP. The user gets
   passwordless sudo and no password, so it can only log in with those keys.
   The installer then asks which disk to install to. The kickstart is in
   `disk/anaconda-iso.toml`.

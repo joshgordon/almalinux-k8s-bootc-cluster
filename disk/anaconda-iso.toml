@@ -1,9 +1,10 @@
 # bootc-image-builder config for the installer ISO.
 #
-# %pre asks on the console (tty5) for a username and SSH keys, and writes the
-# user, its keys and a passwordless sudo rule to /tmp/ks-user.ks, which the
-# %include below pulls in. There are no storage directives, so Anaconda asks
-# which disk to install to rather than wiping one on its own.
+# %pre asks on the console (tty5) for the hostname, network settings, a
+# username and SSH keys, and writes the matching kickstart commands (plus a
+# passwordless sudo rule) to /tmp/ks-user.ks, which the %include below pulls
+# in. There are no storage directives, so Anaconda asks which disk to install
+# to rather than wiping one on its own.
 
 [customizations.installer.kickstart]
 contents = '''
@@ -11,29 +12,84 @@ contents = '''
 exec < /dev/tty5 > /dev/tty5 2>&1
 chvt 5
 
+octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+ipv4="(${octet}\\.){3}${octet}"
+ipv4_re="^${ipv4}\$"
+
+ask() {  # ask <var> <prompt> <regex> [default]
+  local reply
+  while :; do
+    read -rp "$2${4:+ [$4]}: " reply || exit 1
+    reply=${reply:-$4}
+    [[ "$reply" =~ $3 ]] && break
+    echo "  Invalid value."
+  done
+  printf -v "$1" '%s' "$reply"
+}
+
+prefix_to_mask() {
+  local bits=$(( 0xffffffff ^ ((1 << (32 - $1)) - 1) ))
+  echo "$(( bits >> 24 & 255 )).$(( bits >> 16 & 255 )).$(( bits >> 8 & 255 )).$(( bits & 255 ))"
+}
+
 echo
 echo "=== almalinux-k8s node setup ==="
 echo
 
-while :; do
-  read -rp "Username to create: " user
-  [[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$user" != root ]] && break
-  echo "Use lowercase letters, digits, - and _ (not root)."
+ask hostname "Hostname (FQDN)" '^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,252}[a-zA-Z0-9])?$'
+
+echo
+echo "Network interfaces:"
+default_if=""
+for path in /sys/class/net/*; do
+  dev=${path##*/}
+  [[ "$dev" == lo || ! -e "$path/device" ]] && continue
+  carrier=$(cat "$path/carrier" 2>/dev/null)
+  [[ "$carrier" == 1 ]] && state="link up" || state="no link"
+  [[ -z "$default_if" && "$carrier" == 1 ]] && default_if=$dev
+  echo "  $dev  $(cat "$path/address")  $state"
+done
+ask iface "Interface" '^[a-zA-Z0-9._-]+$' "$default_if"
+
+ask mode "Use DHCP or static? (dhcp/static)" '^(dhcp|static)$' dhcp
+if [[ "$mode" == static ]]; then
+  ask ip "IP address" "$ipv4_re"
+  ask prefix "Prefix length" '^([1-9]|[12][0-9]|3[0-2])$' 24
+  ask gateway "Gateway" "$ipv4_re"
+  ask dns "DNS servers (comma-separated)" "^${ipv4}(,${ipv4})*\$" "$gateway"
+  netline="network --device=${iface} --bootproto=static --ip=${ip} --netmask=$(prefix_to_mask "$prefix") --gateway=${gateway} --nameserver=${dns} --hostname=${hostname} --onboot=yes --activate"
+
+  # Bring the address up now so the GitHub key lookup below works.
+  ip link set "$iface" up
+  ip addr add "${ip}/${prefix}" dev "$iface" 2>/dev/null
+  ip route replace default via "$gateway" dev "$iface"
+  : > /etc/resolv.conf
+  for ns in ${dns//,/ }; do echo "nameserver $ns" >> /etc/resolv.conf; done
+else
+  netline="network --device=${iface} --bootproto=dhcp --hostname=${hostname} --onboot=yes --activate"
+fi
+
+echo
+ask user "Username to create" '^[a-z_][a-z0-9_-]{0,31}$'
+while [[ "$user" == root ]]; do
+  echo "  Pick a user other than root."
+  ask user "Username to create" '^[a-z_][a-z0-9_-]{0,31}$'
 done
 
 keys=""
 while [[ -z "$keys" ]]; do
-  read -rp "GitHub username to import SSH keys from (blank to paste a key): " ghuser
+  read -rp "GitHub username to import SSH keys from (blank to paste a key): " ghuser || exit 1
   if [[ -n "$ghuser" ]]; then
-    keys=$(curl -fsSL --max-time 20 "https://github.com/${ghuser}.keys") || echo "Couldn't fetch keys for ${ghuser}."
-    [[ -z "$keys" ]] && echo "No keys found for ${ghuser}."
+    keys=$(curl -fsSL --max-time 20 "https://github.com/${ghuser}.keys") || echo "  Couldn't fetch keys for ${ghuser}."
+    [[ -z "$keys" ]] && echo "  No keys found for ${ghuser}."
   else
-    read -rp "SSH public key: " keys
-    [[ "$keys" =~ ^(ssh-|ecdsa-|sk-) ]] || { echo "That doesn't look like a public key."; keys=""; }
+    read -rp "SSH public key: " keys || exit 1
+    [[ "$keys" =~ ^(ssh-|ecdsa-|sk-) ]] || { echo "  That doesn't look like a public key."; keys=""; }
   fi
 done
 
 {
+  echo "$netline"
   echo "user --name=${user} --groups=wheel --lock"
   while read -r key; do
     [[ -n "$key" ]] && echo "sshkey --username=${user} \"${key}\""
@@ -45,8 +101,11 @@ done
 } > /tmp/ks-user.ks
 
 echo
-echo "Creating ${user} with $(grep -c ^sshkey /tmp/ks-user.ks) SSH key(s). Continuing install..."
-sleep 3
+echo "  Host:    ${hostname}"
+echo "  Network: ${iface} ${mode}${ip:+ ${ip}/${prefix} via ${gateway}, DNS ${dns}}"
+echo "  User:    ${user} with $(grep -c ^sshkey /tmp/ks-user.ks) SSH key(s)"
+echo
+read -rp "Press Enter to continue the install..." _
 %end
 
 %include /tmp/ks-user.ks
