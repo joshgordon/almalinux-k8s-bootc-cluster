@@ -21,7 +21,9 @@ ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest
 | `ansible/bootstrap_bootc_cluster.yml` | Switches hosts to the image and builds the cluster |
 | `ansible/inventories/prod.yml` | Hosts, groups and the control plane VIP |
 | `.github/workflows/build.yml` | Builds, publishes and signs the image |
+| `.github/workflows/disk-images.yml` | Builds a qcow2 VM disk and an installer ISO from the image |
 | `.github/workflows/base-image-diff.yml` | Comments RPM changes on base image update PRs |
+| `disk/` | bootc-image-builder config for the disk images |
 | `renovate.json` | Keeps base images, Kubernetes and cilium-cli up to date |
 
 ## The image
@@ -53,6 +55,9 @@ On top of the base, both architectures get:
   identity.
 - **cilium-cli**, installed in `/usr/local/bin`, version pinned by the
   `CILIUM_CLI_VERSION` build arg.
+- **cloud-init** and `growpart`, so VMs take their users, SSH keys and
+  hostname from user-data and grow the root filesystem to fill the disk.
+  On machines with no cloud-init data source, cloud-init does nothing.
 - **EPEL and CRB** repositories enabled.
 - **Automatic updates without automatic reboots.** A drop-in for
   `bootc-fetch-apply-updates.service` runs `bootc upgrade` without
@@ -97,11 +102,50 @@ updated, added and removed packages as a comment on the PR. To run it on an
 existing PR, use **Actions → Base image package diff → Run workflow** and enter
 the PR number.
 
+### Disk images
+
+After each successful image build on `main`, `disk-images.yml` uses
+[bootc-image-builder](https://github.com/osbuild/bootc-image-builder) to turn
+the amd64 image into two files, attached to the workflow run as artifacts
+(kept for 90 days):
+
+- **`almalinux-k8s-qcow2`:** a VM disk (`disk.qcow2`, 40 GiB virtual,
+  sparse). It has no users baked in; give the VM cloud-init user-data with
+  your user, SSH key and passwordless sudo, as with the
+  [old cloud-init bootstrap](#provisioning-hosts).
+- **`almalinux-k8s-anaconda-iso`:** an installer (`install.iso`) for bare
+  metal or VMs without cloud-init. It creates the user `josh` (set by
+  `ISO_USER` in the workflow) with the repo owner's
+  [GitHub SSH keys](https://github.com/joshgordon.keys) and passwordless
+  sudo. The installer asks which disk to install to.
+
+Both boot straight into a node that's ready for the bootstrap playbook. No
+`bootc switch` is needed, and updates come from
+`ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest`. Check this with
+`bootc status` after installing.
+
+arm64 disk images aren't built, because the arm64 image only carries the
+Raspberry Pi 5 kernel.
+
+To rebuild them by hand: **Actions → Build disk images → Run workflow**.
+
 ## Bootstrapping a cluster
+
+### Provisioning hosts
+
+There are two ways to get hosts ready for the playbook:
+
+- **From the disk images above.** Hosts are already running this image.
+- **From the cloud-init bootstrap image.** Boot a VM from
+  [`base-cloud-init`](https://github.com/joshgordon/immutable-os/tree/main/images/base-cloud-init)
+  in the old [immutable-os](https://github.com/joshgordon/immutable-os) repo
+  (`ghcr.io/joshgordon/immutable-os/base-cloud-init`). That's a minimal
+  AlmaLinux bootc image with cloud-init and growpart. The playbook's first
+  step then runs `bootc switch` to move it onto this image.
 
 ### Prerequisites
 
-- Hosts already running an AlmaLinux bootc image, reachable over SSH by
+- Hosts running an AlmaLinux bootc image (see above), reachable over SSH by
   Ansible with sudo.
 - A free IP on the node network to use as the control plane VIP.
 - If the ghcr.io package is private, credentials on each host to pull it.

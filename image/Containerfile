@@ -79,6 +79,12 @@ RUN dnf install -y iscsi-initiator-utils nfs-utils cryptsetup && \
   systemctl enable iscsid.service iscsi-initiatorname-regen.service && \
   dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
+# cloud-init so VMs built from the qcow2 pick up users, SSH keys and
+# hostname from user-data; growpart grows root to fill a resized disk.
+RUN dnf install -y cloud-init cloud-utils-growpart && \
+  systemctl enable cloud-init.service && \
+  dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
+
 # Install cilium
 RUN curl -L --fail --remote-name-all https://github.com/cilium/cilium-cli/releases/download/${CILIUM_CLI_VERSION}/cilium-linux-${TARGETARCH}.tar.gz{,.sha256sum} && \
   sha256sum --check cilium-linux-${TARGETARCH}.tar.gz.sha256sum && \

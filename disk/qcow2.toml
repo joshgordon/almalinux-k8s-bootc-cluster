@@ -1,0 +1,6 @@
+# bootc-image-builder config for the qcow2 VM image. Users and SSH keys come
+# from cloud-init user-data at first boot, so none are baked in here.
+
+[[customizations.filesystem]]
+mountpoint = "/"
+minsize = "40 GiB"
