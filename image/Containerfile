@@ -6,6 +6,10 @@ FROM ghcr.io/joshgordon/almalinux-rpi5-kernel:latest@sha256:23d79cf21ec80749cf53
 
 # base-arm64: rpi base + the rebuilt kernel swapped in, NO build tooling
 FROM rpi-raw AS base-arm64
+# The rpi base lacks bootc-base-imagectl, which CI runs from the image to
+# rechunk it. Take it from the regular bootc image (its arm64 variant here).
+COPY --from=base-amd64 /usr/libexec/bootc-base-imagectl /usr/libexec/bootc-base-imagectl
+COPY --from=base-amd64 /usr/share/doc/bootc-base-imagectl/ /usr/share/doc/bootc-base-imagectl/
 COPY --from=kbuild /rpms/ /tmp/kernel/
 RUN dnf -y remove --noautoremove 'raspberrypi2-kernel4*' && \
     rm -rf /usr/lib/modules/* && \
