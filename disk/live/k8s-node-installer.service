@@ -1,0 +1,21 @@
+[Unit]
+Description=almalinux-k8s node installer
+After=systemd-user-sessions.service plymouth-quit-wait.service
+Conflicts=getty@tty1.service
+Before=getty@tty1.service
+
+[Service]
+Type=idle
+Environment=IMAGE_REF=@IMAGE_REF@
+ExecStart=/usr/libexec/k8s-node-installer
+StandardInput=tty
+StandardOutput=tty
+StandardError=tty
+TTYPath=/dev/tty1
+TTYReset=yes
+TTYVHangup=yes
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=multi-user.target

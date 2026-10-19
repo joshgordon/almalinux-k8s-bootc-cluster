@@ -137,18 +137,24 @@ after that day's image build) and whenever `disk/` changes:
   has no users baked in; give the VM cloud-init user-data with your user, SSH
   key and passwordless sudo, as with the
   [old cloud-init bootstrap](#provisioning-hosts).
-- **`almalinux-k8s-iso`:** a network installer (`install.iso`, about 1 GiB)
-  for bare metal or VMs without cloud-init. It's AlmaLinux's own `boot.iso`
-  with the kickstart in `disk/install.ks` added, and it pulls the node image
-  from the registry during the install, so it always installs the current
-  image. Before the installer starts, it asks on the console for the
-  hostname, timezone, the network interface, a static address (IP, prefix length,
-  gateway, DNS) or DHCP, a username, and SSH keys. For the keys, you can
-  give a GitHub username to import that account's public keys, or paste a
-  key. The network is brought up right away for the install, so a static
-  address works without any DHCP server. The user gets
-  passwordless sudo and no password, so it can only log in with those keys.
-  The installer then asks which disk to install to; that's the only screen left to fill in.
+- **`almalinux-k8s-iso`:** a network installer (`install.iso`) for bare
+  metal or VMs without cloud-init. It boots a minimal live system made from
+  AlmaLinux's bootc image (`disk/live/`), with no graphical installer. A
+  console program on the first screen asks for:
+  - the hostname and timezone
+  - the network interface, and a static address (IP, prefix length,
+    gateway, DNS) or DHCP
+  - a username, and SSH keys: a GitHub username to import that account's
+    public keys, or a pasted key
+  - the disk to install to, with a typed `yes` before it's erased
+
+  It then downloads the current node image from the registry and installs it
+  with `bootc install to-disk`. The network is brought up as soon as you
+  answer, so a static address works without any DHCP server. The settings
+  are left on the new disk as a cloud-init seed, which the node applies on
+  first boot. The user gets passwordless sudo and no password, so it can
+  only log in with those keys. The live system keeps the downloaded image in
+  RAM while installing, so the machine needs a few GiB of memory to spare.
 
 Both boot straight into a node that's ready for the bootstrap playbook, with
 updates coming from `ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest`.

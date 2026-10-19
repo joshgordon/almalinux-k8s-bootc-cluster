@@ -1,12 +1,12 @@
 name: Build disk images
 
 # Builds an amd64 qcow2 VM disk from the published image with
-# bootc-image-builder, and an installer ISO by adding disk/install.ks to
-# AlmaLinux's boot.iso. The ISO pulls the image from the registry at install
-# time, and both kinds of install upgrade to the latest image on first boot, so
-# these only need refreshing occasionally. arm64 is skipped: that image only
-# carries the Raspberry Pi 5 kernel, so it isn't useful as a generic VM or
-# installer.
+# bootc-image-builder, and an installer ISO: a live system (disk/live) with a
+# console installer that downloads the image and runs `bootc install to-disk`,
+# made with image-builder. Both kinds of install upgrade to the latest image on
+# first boot, so these only need refreshing occasionally. arm64 is skipped: that
+# image only carries the Raspberry Pi 5 kernel, so it isn't useful as a generic
+# VM or installer.
 
 on:
   schedule:
@@ -21,8 +21,7 @@ on:
 env:
   IMAGE: ghcr.io/${{ github.repository }}:latest
   BUILDER: quay.io/centos-bootc/bootc-image-builder:latest
-  BOOT_ISO_URL: https://repo.almalinux.org/almalinux/10/isos/x86_64
-  BOOT_ISO: AlmaLinux-10-latest-x86_64-boot.iso
+  IMAGE_BUILDER: ghcr.io/osbuild/image-builder-cli:latest
 
 jobs:
   qcow2:
@@ -72,24 +71,46 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Download and verify boot.iso
+      # From AlmaLinux atomic-ci: Ubuntu 26.04's bwrap-userns-restrict AppArmor
+      # profile strips the capabilities osbuild's stages need. Keep them in
+      # bwrap's own profile; does nothing on runners without it.
+      - name: Allow bwrap to keep its capabilities
         run: |
-          curl -fsSLO "$BOOT_ISO_URL/$BOOT_ISO"
-          curl -fsSL "$BOOT_ISO_URL/CHECKSUM" | grep "($BOOT_ISO)" | sed 's/^SHA256 (\(.*\)) = \(.*\)$/\2  \1/' > boot.sha256
-          sha256sum -c boot.sha256
+          if sudo test -r /etc/apparmor.d/bwrap-userns-restrict &&
+             sudo test -r /sys/kernel/security/apparmor/profiles &&
+             sudo grep -qx 'bwrap (enforce)' /sys/kernel/security/apparmor/profiles; then
+            printf '%s\n' 'priority=100 allow file rwlkm /**,' 'priority=100 allow ix /**,' \
+              | sudo tee /etc/apparmor.d/local/bwrap-userns-restrict > /dev/null
+            sudo apparmor_parser -Q /etc/apparmor.d/bwrap-userns-restrict
+            sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
+          fi
 
-      - name: Validate kickstart and build ISO
+      - name: Build live environment
+        run: |
+          sudo podman build \
+            --cap-add=sys_admin \
+            --security-opt=label=disable \
+            --build-arg IMAGE_REF="$IMAGE" \
+            -t localhost/k8s-node-installer \
+            -f disk/live/Containerfile \
+            disk/live
+
+      - name: Build ISO
         run: |
           mkdir -p output
-          sudo podman run --rm --privileged -v "$PWD:/work" -w /work \
-            quay.io/almalinuxorg/almalinux:10 bash -euo pipefail -c '
-              dnf -y -q install lorax pykickstart
-              # The %include target only exists at install time; stub it to validate
-              touch /tmp/ks-user.ks
-              ksvalidator disk/install.ks
-              mkksiso --ks disk/install.ks "$0" output/install.iso
-            ' "$BOOT_ISO"
+          sudo podman run --rm --privileged --pull=newer \
+            --security-opt label=type:unconfined_t \
+            -v ./output:/output \
+            -v /var/lib/containers/storage:/var/lib/containers/storage \
+            "$IMAGE_BUILDER" \
+            build \
+            --output-dir /output \
+            --bootc-ref localhost/k8s-node-installer \
+            bootc-generic-iso
           sudo chown -R "$(id -u):$(id -g)" output
+          iso=$(find output -name '*.iso' | head -1)
+          [[ -f "$iso" ]] || { echo "::error::No ISO in output/"; exit 1; }
+          mv "$iso" output/install.iso
           ls -lh output/install.iso
 
       - name: Upload ISO

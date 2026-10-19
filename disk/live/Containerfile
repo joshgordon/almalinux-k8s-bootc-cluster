@@ -1,0 +1,16 @@
+# Live environment for the installer ISO: AlmaLinux's bootc base image plus a
+# console installer (k8s-node-installer) on tty1, with no Anaconda or desktop.
+# disk-images.yml turns it into an ISO with image-builder's bootc-generic-iso,
+# following AlmaLinux atomic-ci's build-iso. The node image is downloaded at
+# install time, not embedded.
+#
+# Build with --cap-add sys_admin --security-opt label=disable
+
+FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:d290f75f50112e1233f8619e0bfa76bf62424f6884d77959d22dcb56853d8c90
+
+# The image the installer installs, and that installed nodes update from
+ARG IMAGE_REF=ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest
+
+RUN --mount=type=bind,source=.,target=/ctx \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/build.sh

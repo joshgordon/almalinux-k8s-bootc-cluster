@@ -1,0 +1,225 @@
+#!/bin/bash
+# Console installer for the live ISO, started on tty1 by
+# k8s-node-installer.service. Asks for the node's settings and a disk, installs
+# the node image (IMAGE_REF) to that disk with `bootc install to-disk`, and
+# leaves a cloud-init NoCloud seed on it. On first boot, cloud-init in the image
+# reads the seed and sets up the network, user, SSH keys, hostname and timezone.
+set -euo pipefail
+
+: "${IMAGE_REF:?}"
+TARGET=/mnt/target
+
+fail() {
+  echo
+  echo "Installation failed: $*"
+  read -rp "Press Enter for a shell (exit it to start over)..." _ || true
+  exec /bin/bash -l
+}
+trap 'fail "command on line ${LINENO} failed"' ERR
+
+octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
+ipv4="(${octet}\.){3}${octet}"
+ipv4_re="^${ipv4}\$"
+
+ask() {  # ask <var> <prompt> <regex> [default]
+  local reply
+  while :; do
+    read -rp "$2${4:+ [$4]}: " reply || exit 1
+    reply=${reply:-${4:-}}
+    [[ "$reply" =~ $3 ]] && break
+    echo "  Invalid value."
+  done
+  printf -v "$1" '%s' "$reply"
+}
+
+clear
+echo "=== almalinux-k8s node installer ==="
+echo "Installs ${IMAGE_REF}"
+echo
+
+### Host
+
+ask hostname "Hostname (FQDN)" '^[a-zA-Z0-9]([a-zA-Z0-9.-]{0,252}[a-zA-Z0-9])?$'
+ask timezone "Timezone (e.g. America/Chicago)" '^[A-Za-z0-9_+/-]+$' UTC
+while [[ ! -f "/usr/share/zoneinfo/${timezone}" ]]; do
+  echo "  Unknown timezone."
+  ask timezone "Timezone (e.g. America/Chicago)" '^[A-Za-z0-9_+/-]+$' UTC
+done
+
+### Network
+
+echo
+echo "Network interfaces:"
+ifaces=()
+default_if=""
+for path in /sys/class/net/*; do
+  dev=${path##*/}
+  [[ "$dev" == lo || ! -e "$path/device" ]] && continue
+  ifaces+=("$dev")
+  carrier=$(cat "$path/carrier" 2>/dev/null || echo 0)
+  [[ "$carrier" == 1 ]] && state="link up" || state="no link"
+  [[ -z "$default_if" && "$carrier" == 1 ]] && default_if=$dev
+  echo "  $dev  $(cat "$path/address")  $state"
+done
+(( ${#ifaces[@]} )) || fail "no network interfaces found"
+ask iface "Interface" "^($(IFS='|'; echo "${ifaces[*]}"))\$" "${default_if:-${ifaces[0]}}"
+mac=$(cat "/sys/class/net/${iface}/address")
+
+ask mode "Static address or DHCP? (static/dhcp)" '^(static|dhcp)$' static
+if [[ "$mode" == static ]]; then
+  ask ip "IP address" "$ipv4_re"
+  ask prefix "Prefix length" '^([1-9]|[12][0-9]|3[0-2])$' 24
+  ask gateway "Gateway" "$ipv4_re"
+  ask dns "DNS servers (comma-separated)" "^${ipv4}(,${ipv4})*\$" "$gateway"
+  nm_args=(ipv4.method manual ipv4.addresses "${ip}/${prefix}" ipv4.gateway "$gateway" ipv4.dns "${dns//,/ }")
+else
+  nm_args=(ipv4.method auto)
+fi
+
+# Bring the interface up now, for the key lookup and the image download
+nmcli connection delete installer-net >/dev/null 2>&1 || true
+nmcli connection add type ethernet ifname "$iface" con-name installer-net "${nm_args[@]}" >/dev/null
+nmcli --wait 60 connection up installer-net >/dev/null || echo "  Couldn't bring up ${iface}; continuing."
+
+### User
+
+echo
+ask user "Username to create" '^[a-z_][a-z0-9_-]{0,31}$'
+while [[ "$user" == root ]]; do
+  echo "  Pick a user other than root."
+  ask user "Username to create" '^[a-z_][a-z0-9_-]{0,31}$'
+done
+
+keys=""
+while [[ -z "$keys" ]]; do
+  read -rp "GitHub username to import SSH keys from (blank to paste a key): " ghuser || exit 1
+  if [[ -n "$ghuser" ]]; then
+    keys=$(curl -fsSL --max-time 20 "https://github.com/${ghuser}.keys") || echo "  Couldn't fetch keys for ${ghuser}."
+    [[ -z "$keys" ]] && echo "  No keys found for ${ghuser}."
+  else
+    read -rp "SSH public key: " keys || exit 1
+    [[ "$keys" =~ ^(ssh-|ecdsa-|sk-) ]] || { echo "  That doesn't look like a public key."; keys=""; }
+  fi
+done
+
+### Disk
+
+# Leave out the installer's own media
+live_src=$(findmnt -no SOURCE /run/initramfs/live 2>/dev/null || true)
+live_disk=""
+if [[ -n "$live_src" ]]; then
+  live_disk=$(lsblk -no PKNAME "$live_src" 2>/dev/null | head -1)
+  live_disk=${live_disk:-${live_src#/dev/}}
+fi
+
+echo
+echo "Disks:"
+disks=()
+while read -r name size model; do
+  [[ "$name" == zram* || "$name" == "$live_disk" ]] && continue
+  disks+=("$name")
+  echo "  $name  $size  $model"
+done < <(lsblk -dno NAME,SIZE,MODEL,TYPE | awk '$NF=="disk"{$NF=""; print}')
+(( ${#disks[@]} )) || fail "no disks to install to"
+default_disk=""
+(( ${#disks[@]} == 1 )) && default_disk=${disks[0]}
+ask disk "Disk to install to" "^($(IFS='|'; echo "${disks[*]}"))\$" "$default_disk"
+
+### Confirm
+
+echo
+echo "  Host:     ${hostname} (${timezone})"
+echo "  Network:  ${iface} ${mode}${ip:+ ${ip}/${prefix} via ${gateway}, DNS ${dns}}"
+echo "  User:     ${user} with $(grep -c . <<< "$keys") SSH key(s), passwordless sudo"
+echo "  Disk:     /dev/${disk} ($(lsblk -dno SIZE,MODEL "/dev/${disk}" | xargs))"
+echo
+echo "EVERYTHING on /dev/${disk} will be erased."
+ask confirm "Type yes to install, or no to start over" '^(yes|no)$'
+[[ "$confirm" == yes ]] || exec "$0"
+
+### Install
+
+echo
+echo "Downloading ${IMAGE_REF}..."
+until podman pull "$IMAGE_REF"; do
+  read -rp "Download failed. Press Enter to retry..." _ || exit 1
+done
+
+echo
+echo "Installing to /dev/${disk}..."
+podman run --rm --privileged --pid=host \
+  --security-opt label=type:unconfined_t \
+  -v /dev:/dev -v /var/lib/containers:/var/lib/containers \
+  "$IMAGE_REF" \
+  bootc install to-disk --wipe --filesystem xfs "/dev/${disk}"
+
+### First-boot settings
+
+udevadm settle
+root_part=$(lsblk -nrpo PATH,LABEL "/dev/${disk}" | awk '$2 == "root" {print $1; exit}')
+[[ -n "$root_part" ]] || fail "couldn't find the root partition on /dev/${disk}"
+mkdir -p "$TARGET"
+mount "$root_part" "$TARGET"
+
+stateroot=$(ls -d "$TARGET"/ostree/deploy/*/ | head -1)
+deployment=$(ls -d "${stateroot}"deploy/*/ | head -1)
+seed="${stateroot}var/lib/cloud/seed/nocloud"
+mkdir -p "$seed"
+
+short=${hostname%%.*}
+cat > "$seed/meta-data" <<EOF
+instance-id: iid-${short}-$(date +%s)
+local-hostname: ${short}
+EOF
+
+{
+  echo "#cloud-config"
+  echo "hostname: ${short}"
+  echo "fqdn: ${hostname}"
+  echo "prefer_fqdn_over_hostname: true"
+  echo "timezone: ${timezone}"
+  echo "ssh_pwauth: false"
+  echo "users:"
+  echo "  - name: ${user}"
+  echo "    groups: [wheel]"
+  echo "    sudo: \"ALL=(ALL) NOPASSWD:ALL\""
+  echo "    lock_passwd: true"
+  echo "    ssh_authorized_keys:"
+  while read -r key; do
+    [[ -n "$key" ]] && echo "      - \"${key}\""
+  done <<< "$keys"
+} > "$seed/user-data"
+
+{
+  echo "version: 2"
+  echo "ethernets:"
+  echo "  primary:"
+  echo "    match:"
+  echo "      macaddress: \"${mac}\""
+  if [[ "$mode" == static ]]; then
+    echo "    addresses: [\"${ip}/${prefix}\"]"
+    echo "    routes:"
+    echo "      - to: default"
+    echo "        via: ${gateway}"
+    echo "    nameservers:"
+    echo "      addresses: [${dns}]"
+  else
+    echo "    dhcp4: true"
+  fi
+} > "$seed/network-config"
+
+# Label the seed like the installed system expects, using its own policy
+fc="${deployment}etc/selinux/targeted/contexts/files/file_contexts"
+if [[ -f "$fc" ]]; then
+  setfiles -r "${stateroot%/}" -F "$fc" "${stateroot}var/lib/cloud"
+else
+  echo "  Warning: no SELinux file contexts in the installed system, seed left unlabeled."
+fi
+
+umount "$TARGET"
+sync
+
+echo
+echo "Installed. Remove the installation media, then press Enter to reboot."
+read -r _ || true
+systemctl reboot
