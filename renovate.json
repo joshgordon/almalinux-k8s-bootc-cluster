@@ -1,0 +1,44 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    ":dependencyDashboard",
+    ":semanticCommits"
+  ],
+  "dockerfile": {
+    "managerFilePatterns": [
+      "/(^|/)Containerfile$/",
+      "/(^|/)Containerfile\\..*$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["quay.io/almalinuxorg/almalinux-bootc", "quay.io/almalinuxorg/almalinux-bootc-rpi"],
+      "schedule": ["* 2-5 * * 1-5"],
+      "groupName": "AlmaLinux bootc base image"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/joshgordon/almalinux-rpi5-kernel"],
+      "schedule": ["* 2-5 * * 1-5"],
+      "groupName": "RPi5 kernel image"
+    },
+    {
+      "matchUpdateTypes": ["digest"],
+      "automerge": true,
+      "platformAutomerge": true
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)Containerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+?) depName=(?<depName>.+?)(?: extractVersion=(?<extractVersion>.+?))?(?: versioning=(?<versioning>.+?))?\\s+ARG \\w+=(?<currentValue>.+?)\\s"
+      ]
+    }
+  ],
+  "timezone": "America/Chicago"
+}

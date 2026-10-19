@@ -1,0 +1,105 @@
+name: Base image package diff
+
+# Diffs installed RPM packages between the old and new digest whenever
+# Renovate bumps a digest-pinned FROM line in a Containerfile, and posts
+# the result as a PR comment. Also runnable by hand (workflow_dispatch)
+# against any already-open PR, e.g. one opened before this workflow existed.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "image/Containerfile"
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to diff"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  diff:
+    if: github.event_name == 'workflow_dispatch' || github.actor == 'renovate[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve PR context
+        id: pr
+        uses: actions/github-script@v9
+        with:
+          script: |
+            let number, base_sha, head_sha, head_ref;
+            if (context.eventName === 'workflow_dispatch') {
+              number = Number(context.payload.inputs.pr_number);
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: number,
+              });
+              base_sha = pr.base.sha;
+              head_sha = pr.head.sha;
+              head_ref = pr.head.ref;
+            } else {
+              number = context.payload.pull_request.number;
+              base_sha = context.payload.pull_request.base.sha;
+              head_sha = context.payload.pull_request.head.sha;
+              head_ref = context.payload.pull_request.head.ref;
+            }
+            core.setOutput('number', number);
+            core.setOutput('base_sha', base_sha);
+            core.setOutput('head_sha', head_sha);
+            core.setOutput('head_ref', head_ref);
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.pr.outputs.head_ref }}
+          fetch-depth: 0
+
+      - name: Set up QEMU (for cross-arch image inspection)
+        uses: docker/setup-qemu-action@v4
+
+      - name: Diff installed RPM packages between base image digests
+        run: |
+          .github/scripts/diff-base-image-packages.sh \
+            "${{ steps.pr.outputs.base_sha }}" \
+            "${{ steps.pr.outputs.head_sha }}" \
+            base-image-diff.md
+
+      - name: Comment on PR
+        if: always()
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const path = 'base-image-diff.md';
+            if (!fs.existsSync(path) || fs.statSync(path).size === 0) return;
+
+            const marker = '<!-- base-image-diff -->';
+            const body = marker + '\n## Base image package changes\n\n' + fs.readFileSync(path, 'utf8');
+            const issue_number = Number('${{ steps.pr.outputs.number }}');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+            });
+            const existing = comments.find(c => c.body.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            }
