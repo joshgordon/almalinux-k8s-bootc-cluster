@@ -1,0 +1,53 @@
+# bootc-image-builder config for the installer ISO.
+#
+# %pre asks on the console (tty5) for a username and SSH keys, and writes the
+# user, its keys and a passwordless sudo rule to /tmp/ks-user.ks, which the
+# %include below pulls in. There are no storage directives, so Anaconda asks
+# which disk to install to rather than wiping one on its own.
+
+[customizations.installer.kickstart]
+contents = '''
+%pre --interpreter=/bin/bash --erroronfail
+exec < /dev/tty5 > /dev/tty5 2>&1
+chvt 5
+
+echo
+echo "=== almalinux-k8s node setup ==="
+echo
+
+while :; do
+  read -rp "Username to create: " user
+  [[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ && "$user" != root ]] && break
+  echo "Use lowercase letters, digits, - and _ (not root)."
+done
+
+keys=""
+while [[ -z "$keys" ]]; do
+  read -rp "GitHub username to import SSH keys from (blank to paste a key): " ghuser
+  if [[ -n "$ghuser" ]]; then
+    keys=$(curl -fsSL --max-time 20 "https://github.com/${ghuser}.keys") || echo "Couldn't fetch keys for ${ghuser}."
+    [[ -z "$keys" ]] && echo "No keys found for ${ghuser}."
+  else
+    read -rp "SSH public key: " keys
+    [[ "$keys" =~ ^(ssh-|ecdsa-|sk-) ]] || { echo "That doesn't look like a public key."; keys=""; }
+  fi
+done
+
+{
+  echo "user --name=${user} --groups=wheel --lock"
+  while read -r key; do
+    [[ -n "$key" ]] && echo "sshkey --username=${user} \"${key}\""
+  done <<< "$keys"
+  echo "%post"
+  echo "echo '${user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/${user}"
+  echo "chmod 0440 /etc/sudoers.d/${user}"
+  echo "%end"
+} > /tmp/ks-user.ks
+
+echo
+echo "Creating ${user} with $(grep -c ^sshkey /tmp/ks-user.ks) SSH key(s). Continuing install..."
+sleep 3
+%end
+
+%include /tmp/ks-user.ks
+'''

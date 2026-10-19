@@ -114,10 +114,12 @@ the amd64 image into two files, attached to the workflow run as artifacts
   your user, SSH key and passwordless sudo, as with the
   [old cloud-init bootstrap](#provisioning-hosts).
 - **`almalinux-k8s-anaconda-iso`:** an installer (`install.iso`) for bare
-  metal or VMs without cloud-init. It creates the user `josh` (set by
-  `ISO_USER` in the workflow) with the repo owner's
-  [GitHub SSH keys](https://github.com/joshgordon.keys) and passwordless
-  sudo. The installer asks which disk to install to.
+  metal or VMs without cloud-init. Before the installer starts, it asks on
+  the console for a username and SSH keys. You can give a GitHub username
+  to import that account's public keys, or paste a key. The user gets
+  passwordless sudo and no password, so it can only log in with those keys.
+  The installer then asks which disk to install to. The kickstart is in
+  `disk/anaconda-iso.toml`.
 
 Both boot straight into a node that's ready for the bootstrap playbook. No
 `bootc switch` is needed, and updates come from
