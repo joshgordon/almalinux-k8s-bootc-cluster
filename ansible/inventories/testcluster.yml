@@ -1,0 +1,32 @@
+all:
+  vars:
+    control_plane_vip: "10.3.14.126"
+    jwt_issuer_url: "https://auth.joshgordon.app/application/o/k8s/"
+    jwt_issuer_aud: "snOPrn5W0to2UaNULmoeSRbWHpMi4FJt0vz3lzSW"
+    oidc_admin_group: "k8s-admins"
+  hosts:
+    testk8s-cp01:
+      ansible_host: 10.3.14.66
+    testk8s-cp02:
+      ansible_host: 10.3.14.67
+    testk8s-cp03:
+      ansible_host: 10.3.14.68
+    testk8s-n01:
+      ansible_host: 10.3.14.69
+    testk8s-n02:
+      ansible_host: 10.3.14.70
+    testk8s-n03:
+      ansible_host: 10.3.14.71
+  children:
+    k8s_cluster:
+      children:
+        k8s_control_plane:
+          hosts:
+            testk8s-cp01:
+            testk8s-cp02:
+            testk8s-cp03:
+        k8s_workers:
+          hosts:
+            testk8s-n01:
+            testk8s-n02:
+            testk8s-n03:

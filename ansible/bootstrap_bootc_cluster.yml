@@ -228,6 +228,7 @@
                   operator: Exists
             interfaces:
               - ^en.*
+              - ^eth.*
             externalIPs: true
             loadBalancerIPs: true
 

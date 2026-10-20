@@ -1,0 +1,174 @@
+---
+# Turns on OIDC login for the API server with a structured authentication
+# config (--authentication-config), and records the flag and its volume in the
+# kubeadm-config ConfigMap so `kubeadm upgrade` and new control plane nodes
+# keep them.
+#
+# Safe to re-run: an API server is only restarted when its manifest doesn't
+# have the setting yet. Changing the issuer or claims later only rewrites the
+# file, which the API server reloads on its own.
+#
+# Needs jwt_issuer_url and jwt_issuer_aud in the inventory. Set
+# oidc_admin_group to give members of that group cluster-admin.
+
+- name: Write the authentication config
+  hosts: k8s_control_plane
+  become: true
+  vars:
+    auth_config_dir: /etc/kubernetes/auth
+  tasks:
+    - name: Check the issuer is set
+      ansible.builtin.assert:
+        that:
+          - jwt_issuer_url | default('') | length > 0
+          - jwt_issuer_aud | default('') | length > 0
+        fail_msg: Set jwt_issuer_url and jwt_issuer_aud in the inventory.
+        quiet: true
+
+    - name: Create the config directory
+      ansible.builtin.file:
+        path: "{{ auth_config_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    - name: Write the config file
+      ansible.builtin.copy:
+        dest: "{{ auth_config_dir }}/oidc-auth.yml"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          apiVersion: apiserver.config.k8s.io/v1
+          kind: AuthenticationConfiguration
+          jwt:
+            - issuer:
+                url: "{{ jwt_issuer_url }}"
+                audiences:
+                  - "{{ jwt_issuer_aud }}"
+              claimMappings:
+                username:
+                  claim: preferred_username
+                  prefix: "oidc:"       # prevents collision with existing users/SAs; "" for no prefix
+                groups:
+                  claim: groups
+                  prefix: "oidc:"
+              claimValidationRules: []
+
+- name: Add the setting to the kubeadm-config ConfigMap
+  hosts: k8s_control_plane[0]
+  become: true
+  vars:
+    kubectl: kubectl --kubeconfig /etc/kubernetes/admin.conf
+    # kubeadm v1beta4 format. The whole directory is mounted, not just the
+    # file, so the API server sees the file when it's replaced and reloads it.
+    auth_arg:
+      name: authentication-config
+      value: /etc/kubernetes/auth/oidc-auth.yml
+    auth_volume:
+      name: auth-config
+      hostPath: /etc/kubernetes/auth
+      mountPath: /etc/kubernetes/auth
+      readOnly: true
+      pathType: DirectoryOrCreate
+  tasks:
+    - name: Read kubeadm-config
+      ansible.builtin.command: "{{ kubectl }} -n kube-system get configmap kubeadm-config -o json"
+      register: kubeadm_config
+      changed_when: false
+      check_mode: false
+
+    - name: Add the flag and volume to the API server settings
+      ansible.builtin.set_fact:
+        cluster_config: "{{ old_config }}"
+        new_cluster_config: >-
+          {{ old_config | combine({'apiServer': api_server | combine({
+               'extraArgs': extra_args if auth_arg in extra_args
+                 else (extra_args | rejectattr('name', 'eq', auth_arg.name) | list) + [auth_arg],
+               'extraVolumes': extra_volumes if auth_volume in extra_volumes
+                 else (extra_volumes | rejectattr('name', 'eq', auth_volume.name) | list) + [auth_volume],
+             })}) }}
+      vars:
+        old_config: "{{ (kubeadm_config.stdout | from_json).data.ClusterConfiguration | from_yaml }}"
+        api_server: "{{ old_config.apiServer | default({}) }}"
+        extra_args: "{{ api_server.extraArgs | default([]) }}"
+        extra_volumes: "{{ api_server.extraVolumes | default([]) }}"
+
+    # kubectl accepts a YAML patch, which keeps Ansible from turning a JSON
+    # one into a dict
+    - name: Update kubeadm-config
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig
+          - /etc/kubernetes/admin.conf
+          - -n
+          - kube-system
+          - patch
+          - configmap
+          - kubeadm-config
+          - --type
+          - merge
+          - -p
+          - "{{ {'data': {'ClusterConfiguration': new_cluster_config | to_nice_yaml(indent=2)}} | to_nice_yaml(indent=2) }}"
+      when: new_cluster_config != cluster_config
+
+    # The group name gets the same "oidc:" prefix as the groups claim
+    - name: Make the admin group cluster admins
+      ansible.builtin.command:
+        cmd: "{{ kubectl }} apply -f -"
+        stdin: |
+          apiVersion: rbac.authorization.k8s.io/v1
+          kind: ClusterRoleBinding
+          metadata:
+            name: oidc-cluster-admins
+          roleRef:
+            apiGroup: rbac.authorization.k8s.io
+            kind: ClusterRole
+            name: cluster-admin
+          subjects:
+            - apiGroup: rbac.authorization.k8s.io
+              kind: Group
+              name: "oidc:{{ oidc_admin_group }}"
+      register: admin_binding
+      changed_when: "'unchanged' not in admin_binding.stdout"
+      when: oidc_admin_group | default('') | length > 0
+
+- name: Restart the API servers with the setting
+  hosts: k8s_control_plane
+  become: true
+  serial: 1
+  tasks:
+    - name: Read the API server manifest
+      ansible.builtin.slurp:
+        src: /etc/kubernetes/manifests/kube-apiserver.yaml
+      register: apiserver_manifest
+
+    - name: Check whether the API server has the setting
+      ansible.builtin.set_fact:
+        apiserver_configured: >-
+          {{ '--authentication-config=/etc/kubernetes/auth/oidc-auth.yml' in container.command
+             and '/etc/kubernetes/auth' in (container.volumeMounts | default([]) | map(attribute='mountPath')) }}
+      vars:
+        container: "{{ (apiserver_manifest.content | b64decode | from_yaml).spec.containers[0] }}"
+
+    # Rewrites the control plane manifests from kubeadm-config; kubeadm skips
+    # any that haven't changed, then waits for the API server to come back.
+    # Certificates and etcd are left alone.
+    - name: Regenerate the control plane manifests
+      ansible.builtin.command: >
+        kubeadm upgrade node phase control-plane
+        --certificate-renewal=false
+        --etcd-upgrade=false
+      when: not apiserver_configured
+
+    - name: Wait for the API server to be ready
+      ansible.builtin.uri:
+        url: https://127.0.0.1:6443/readyz
+        validate_certs: false
+      register: readyz
+      until: readyz.status == 200
+      retries: 30
+      delay: 5
+      when: not apiserver_configured
