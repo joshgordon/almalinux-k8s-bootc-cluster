@@ -151,8 +151,9 @@ after that day's image build) and whenever `disk/` changes:
   It then downloads the current node image from the registry and installs it
   with `bootc install to-disk`. The network is brought up as soon as you
   answer, so a static address works without any DHCP server. The settings
-  are left on the new disk as a cloud-init seed, which the node applies on
-  first boot. The user gets passwordless sudo and no password, so it can
+  are written into the new system's `/etc/cloud/cloud.cfg.d/` as cloud-init
+  config, which the node applies on first boot. Pressing Ctrl+C in the
+  installer drops to a shell, for debugging. The user gets passwordless sudo and no password, so it can
   only log in with those keys. The live system keeps the downloaded image in
   RAM while installing, so the machine needs a few GiB of memory to spare.
 

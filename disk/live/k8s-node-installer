@@ -2,8 +2,9 @@
 # Console installer for the live ISO, started on tty1 by
 # k8s-node-installer.service. Asks for the node's settings and a disk, installs
 # the node image (IMAGE_REF) to that disk with `bootc install to-disk`, and
-# leaves a cloud-init NoCloud seed on it. On first boot, cloud-init in the image
-# reads the seed and sets up the network, user, SSH keys, hostname and timezone.
+# writes the settings into its /etc as cloud-init config. On first boot,
+# cloud-init in the image sets up the network, user, SSH keys, hostname and
+# timezone from it. Ctrl+C drops to a shell, for debugging.
 set -euo pipefail
 
 : "${IMAGE_REF:?}"
@@ -16,6 +17,7 @@ fail() {
   exec /bin/bash -l
 }
 trap 'fail "command on line ${LINENO} failed"' ERR
+trap 'fail "interrupted"' INT
 
 octet='(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])'
 ipv4="(${octet}\.){3}${octet}"
@@ -163,16 +165,13 @@ mount "$root_part" "$TARGET"
 
 stateroot=$(ls -d "$TARGET"/ostree/deploy/*/ | head -1)
 deployment=$(ls -d "${stateroot}"deploy/*/ | head -1)
-seed="${stateroot}var/lib/cloud/seed/nocloud"
-mkdir -p "$seed"
 
+# In /etc rather than a NoCloud seed in /var: cloud-init decides whether to run
+# from a systemd generator, which can run before ostree has mounted /var, so a
+# seed there may not be found. With NoCloud as the only data source, cloud-init uses it without
+# looking for one, and takes the user-data and meta-data from this config.
 short=${hostname%%.*}
-cat > "$seed/meta-data" <<EOF
-instance-id: iid-${short}-$(date +%s)
-local-hostname: ${short}
-EOF
-
-{
+user_data=$(
   echo "#cloud-config"
   echo "hostname: ${short}"
   echo "fqdn: ${hostname}"
@@ -188,32 +187,44 @@ EOF
   while read -r key; do
     [[ -n "$key" ]] && echo "      - \"${key}\""
   done <<< "$keys"
-} > "$seed/user-data"
+)
 
+cfg="${deployment}etc/cloud/cloud.cfg.d/90-k8s-node-installer.cfg"
 {
-  echo "version: 2"
-  echo "ethernets:"
-  echo "  primary:"
-  echo "    match:"
-  echo "      macaddress: \"${mac}\""
+  echo "# Written by the almalinux-k8s ISO installer"
+  echo "datasource_list: [NoCloud, None]"
+  echo "datasource:"
+  echo "  NoCloud:"
+  echo "    meta-data:"
+  echo "      instance-id: iid-${short}-$(date +%s)"
+  echo "      local-hostname: ${short}"
+  echo "    user-data: |"
+  sed 's/^/      /' <<< "$user_data"
+  echo "network:"
+  echo "  version: 2"
+  echo "  ethernets:"
+  echo "    primary:"
+  echo "      match:"
+  echo "        macaddress: \"${mac}\""
   if [[ "$mode" == static ]]; then
-    echo "    addresses: [\"${ip}/${prefix}\"]"
-    echo "    routes:"
-    echo "      - to: default"
-    echo "        via: ${gateway}"
-    echo "    nameservers:"
-    echo "      addresses: [${dns}]"
+    echo "      addresses: [\"${ip}/${prefix}\"]"
+    echo "      routes:"
+    echo "        - to: default"
+    echo "          via: ${gateway}"
+    echo "      nameservers:"
+    echo "        addresses: [${dns}]"
   else
-    echo "    dhcp4: true"
+    echo "      dhcp4: true"
   fi
-} > "$seed/network-config"
+} > "$cfg"
+chmod 0644 "$cfg"
 
-# Label the seed like the installed system expects, using its own policy
+# Label it like the installed system expects, using its own policy
 fc="${deployment}etc/selinux/targeted/contexts/files/file_contexts"
 if [[ -f "$fc" ]]; then
-  setfiles -r "${stateroot%/}" -F "$fc" "${stateroot}var/lib/cloud"
+  setfiles -r "${deployment%/}" -F "$fc" "$cfg"
 else
-  echo "  Warning: no SELinux file contexts in the installed system, seed left unlabeled."
+  echo "  Warning: no SELinux file contexts in the installed system, ${cfg#"$TARGET"} left unlabeled."
 fi
 
 umount "$TARGET"
