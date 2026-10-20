@@ -127,9 +127,13 @@ the PR number.
 
 ### Disk images
 
-`disk-images.yml` builds two amd64 files, attached to the workflow run as
-artifacts (kept for 90 days). It runs on the 1st of each month (08:00 UTC,
-after that day's image build) and whenever `disk/` changes:
+`disk-images.yml` builds two amd64 files. It runs on the 1st of each month
+(08:00 UTC, after that day's image build) and publishes them as a
+[GitHub release](https://github.com/joshgordon/almalinux-k8s-bootc-cluster/releases)
+tagged with the date (e.g. `2026.11.01`), with a `SHA256SUMS` file and the
+image digest and package versions they were built from. Changes to `disk/`
+also run it, but those runs only attach the files to the run as artifacts,
+without a release:
 
 - **`almalinux-k8s-qcow2`:** a VM disk (`disk.qcow2`, 40 GiB virtual,
   sparse), made from the image with
@@ -167,7 +171,7 @@ deployment yet), so existing nodes never reboot from it.
 arm64 disk images aren't built, because the arm64 image only carries the
 Raspberry Pi 5 kernel.
 
-To rebuild them by hand: **Actions → Build disk images → Run workflow**.
+To cut a release by hand: **Actions → Build disk images → Run workflow**.
 
 ## Bootstrapping a cluster
 

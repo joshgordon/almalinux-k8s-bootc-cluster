@@ -7,6 +7,9 @@ name: Build disk images
 # first boot, so these only need refreshing occasionally. arm64 is skipped: that
 # image only carries the Raspberry Pi 5 kernel, so it isn't useful as a generic
 # VM or installer.
+#
+# Scheduled and manual runs publish both files as a GitHub release, tagged with
+# the date. Pushes only build them, to test changes to disk/.
 
 on:
   schedule:
@@ -29,6 +32,10 @@ jobs:
     permissions:
       contents: read
       packages: read
+    outputs:
+      image-digest: ${{ steps.image.outputs.digest }}
+      image-version: ${{ steps.image.outputs.version }}
+      packages: ${{ steps.image.outputs.packages }}
     steps:
       - uses: actions/checkout@v7
 
@@ -41,6 +48,18 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
           sudo podman pull "$IMAGE"
+
+      - name: Record image details
+        id: image
+        run: |
+          echo "digest=$(sudo podman image inspect --format '{{.Digest}}' "$IMAGE")" >> "$GITHUB_OUTPUT"
+          echo "version=$(sudo podman image inspect --format '{{index .Labels "org.opencontainers.image.version"}}' "$IMAGE")" >> "$GITHUB_OUTPUT"
+          {
+            echo 'packages<<EOF'
+            sudo podman run --rm --entrypoint rpm "$IMAGE" -q --qf '| %{NAME} | %{VERSION}-%{RELEASE} |\n' \
+              kernel kubelet containerd bootc || true
+            echo EOF
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build qcow2
         run: |
@@ -119,3 +138,53 @@ jobs:
           name: almalinux-k8s-iso
           path: output/install.iso
           compression-level: 1
+
+  release:
+    needs: [qcow2, iso]
+    if: github.event_name != 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DIGEST: ${{ needs.qcow2.outputs.image-digest }}
+          VERSION: ${{ needs.qcow2.outputs.image-version }}
+          PACKAGES: ${{ needs.qcow2.outputs.packages }}
+        run: |
+          cd assets
+          ls -lh
+          sha256sum disk.qcow2 install.iso > SHA256SUMS
+
+          # One release per day; a second run that day gets .2, .3, ...
+          tag=$(date -u +%Y.%m.%d)
+          base=$tag n=1
+          while gh release view "$tag" > /dev/null 2>&1; do
+            n=$((n + 1))
+            tag="$base.$n"
+          done
+
+          cat > notes.md <<EONOTES
+          amd64 disk images built from \`${IMAGE%:*}@${DIGEST}\`${VERSION:+ (version ${VERSION})}.
+
+          | Package | Version |
+          |---|---|
+          ${PACKAGES}
+
+          - **\`disk.qcow2\`:** amd64 VM disk with that image installed. Give the VM cloud-init user-data with your user and SSH key.
+          - **\`install.iso\`:** amd64 network installer. It downloads and installs the current \`:latest\` image, not necessarily the one above.
+
+          Both upgrade to the latest image on first boot. Check downloads with \`sha256sum -c SHA256SUMS\`.
+          EONOTES
+
+          gh release create "$tag" disk.qcow2 install.iso SHA256SUMS \
+            --title "Disk images $tag" \
+            --notes-file notes.md \
+            --target "$GITHUB_SHA"
