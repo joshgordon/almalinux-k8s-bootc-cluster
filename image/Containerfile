@@ -89,6 +89,11 @@ RUN dnf install -y cloud-init cloud-utils-growpart && \
   systemctl enable cloud-init.service && \
   dnf clean all && rm -rf /var/cache/dnf /var/log/dnf* /var/log/hawkey.log /var/lib/dnf
 
+# atomic-ci moves every group but root and wheel from /etc/group to
+# /usr/lib/group, where useradd doesn't look, so cloud-init's default user
+# groups (adm, systemd-journal) make it fail to create the user. Use wheel only.
+COPY image/cloud-init-default-user.cfg /etc/cloud/cloud.cfg.d/90-default-user.cfg
+
 # Fresh installs from an older qcow2 or ISO jump straight to the latest image.
 COPY image/bootc-first-boot-upgrade /usr/libexec/bootc-first-boot-upgrade
 COPY image/bootc-first-boot-upgrade.service /usr/lib/systemd/system/bootc-first-boot-upgrade.service
