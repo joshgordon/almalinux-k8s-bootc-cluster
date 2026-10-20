@@ -327,3 +327,7 @@ The repo is at
 [github.com/joshgordon/almalinux-k8s-bootc-cluster](https://github.com/joshgordon/almalinux-k8s-bootc-cluster),
 and the image is published at
 `ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest`.
+
+If you're interested in rolling this yourself, I would recommend forking my repo and using your own base
+image. I can't make promises that the upgrades I decide to roll in won't break your environment, and don't
+take any responsibility for your stuff breaking if you decide to use my images.
