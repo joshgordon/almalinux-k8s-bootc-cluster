@@ -61,11 +61,18 @@
   become: true
   vars:
     kubectl: kubectl --kubeconfig /etc/kubernetes/admin.conf
-    # kubeadm v1beta4 format. The whole directory is mounted, not just the
-    # file, so the API server sees the file when it's replaced and reloads it.
-    auth_arg:
-      name: authentication-config
-      value: /etc/kubernetes/auth/oidc-auth.yml
+    # kubeadm v1beta4 format.
+    api_server_args: &api_server_args
+      - name: authentication-config
+        value: /etc/kubernetes/auth/oidc-auth.yml
+      # On shutdown, keep serving for a while after /readyz starts failing, so
+      # the kube-apiserver-lb Service drops this server before it stops. The
+      # kubelet reports the pod's readiness through its own node's API server,
+      # so without this the dead server stays in the Service until it's back.
+      - name: shutdown-delay-duration
+        value: 20s
+    # The whole directory is mounted, not just the file, so the API server
+    # sees the file when it's replaced and reloads it.
     auth_volume:
       name: auth-config
       hostPath: /etc/kubernetes/auth
@@ -79,13 +86,14 @@
       changed_when: false
       check_mode: false
 
-    - name: Add the flag and volume to the API server settings
+    - name: Add the flags and volume to the API server settings
       ansible.builtin.set_fact:
         cluster_config: "{{ old_config }}"
         new_cluster_config: >-
           {{ old_config | combine({'apiServer': api_server | combine({
-               'extraArgs': extra_args if auth_arg in extra_args
-                 else (extra_args | rejectattr('name', 'eq', auth_arg.name) | list) + [auth_arg],
+               'extraArgs': extra_args if api_server_args | reject('in', extra_args) | list | length == 0
+                 else (extra_args | rejectattr('name', 'in', api_server_args | map(attribute='name') | list) | list)
+                   + api_server_args,
                'extraVolumes': extra_volumes if auth_volume in extra_volumes
                  else (extra_volumes | rejectattr('name', 'eq', auth_volume.name) | list) + [auth_volume],
              })}) }}
@@ -139,19 +147,28 @@
   hosts: k8s_control_plane
   become: true
   serial: 1
+  vars:
+    api_server_args: *api_server_args
+    kubectl: kubectl --kubeconfig /etc/kubernetes/admin.conf
   tasks:
     - name: Read the API server manifest
       ansible.builtin.slurp:
         src: /etc/kubernetes/manifests/kube-apiserver.yaml
       register: apiserver_manifest
 
-    - name: Check whether the API server has the setting
+    - name: Check whether the API server has the settings
       ansible.builtin.set_fact:
         apiserver_configured: >-
-          {{ '--authentication-config=/etc/kubernetes/auth/oidc-auth.yml' in container.command
+          {{ wanted_flags | reject('in', container.command) | list | length == 0
              and '/etc/kubernetes/auth' in (container.volumeMounts | default([]) | map(attribute='mountPath')) }}
+        apiserver_address: >-
+          {{ manifest.metadata.annotations['kubeadm.kubernetes.io/kube-apiserver.advertise-address.endpoint'].rsplit(':', 1)[0] }}
       vars:
-        container: "{{ (apiserver_manifest.content | b64decode | from_yaml).spec.containers[0] }}"
+        manifest: "{{ apiserver_manifest.content | b64decode | from_yaml }}"
+        container: "{{ manifest.spec.containers[0] }}"
+        wanted_flags: >-
+          {{ api_server_args | map(attribute='name') | map('regex_replace', '^', '--')
+             | zip(api_server_args | map(attribute='value')) | map('join', '=') | list }}
 
     # Rewrites the control plane manifests from kubeadm-config; kubeadm skips
     # any that haven't changed, then waits for the API server to come back.
@@ -171,4 +188,21 @@
       until: readyz.status == 200
       retries: 30
       delay: 5
+      when: not apiserver_configured
+
+    # Don't restart the next one until this one is taking traffic again
+    - name: Wait for the load balancer to use the API server again
+      ansible.builtin.command: >-
+        {{ kubectl }} -n kube-system get endpointslices
+        -l kubernetes.io/service-name=kube-apiserver-lb -o json
+      register: apiserver_endpoints
+      until: >-
+        apiserver_address in ((apiserver_endpoints.stdout | from_json)['items']
+          | map(attribute='endpoints') | flatten
+          | selectattr('conditions.ready', 'defined') | selectattr('conditions.ready')
+          | map(attribute='addresses') | flatten)
+      retries: 30
+      delay: 2
+      changed_when: false
+      check_mode: false
       when: not apiserver_configured
