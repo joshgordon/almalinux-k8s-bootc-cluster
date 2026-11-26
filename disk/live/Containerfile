@@ -6,7 +6,7 @@
 #
 # Build with --cap-add sys_admin --security-opt label=disable
 
-FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:25d073558afa301299578b1c7ed6e100555ea361bd31a834e2b3a5772dc0add5
+FROM quay.io/almalinuxorg/almalinux-bootc:10@sha256:c02700e75fdffaa98c6f3a9994a27effb85a041f80f5dc3ad3bb9dacfca426af
 
 # The image the installer installs, and that installed nodes update from
 ARG IMAGE_REF=ghcr.io/joshgordon/almalinux-k8s-bootc-cluster:latest
